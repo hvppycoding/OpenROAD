@@ -792,4 +792,246 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
              numShift);
 }
 
+void FastRouteCore::gen_brk_CAREST()
+{
+  logger_->report("===== FastRouteCore::gen_brk_CAREST =====");
+
+  writeRSMTInputFile("rsmt_input.txt");
+  std::string dummy;
+  std::cout << "WAIT FOR OUTPUT";
+  std::cin >> dummy;
+  std::vector<Tree> rsmt_trees = readRSMTOutputFile("rsmt_output.txt");
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+    Tree rsmt = rsmt_trees[i];
+    for (int j = 0; j < rsmt.branchCount(); j++) {
+      const int x1 = rsmt.branch[j].x;
+      const int y1 = rsmt.branch[j].y;
+      const int n = rsmt.branch[j].n;
+      const int x2 = rsmt.branch[n].x;
+      const int y2 = rsmt.branch[n].y;
+
+      if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+        // the position of this segment in seglist
+        seglist_[i].push_back(Segment());
+        auto& seg = seglist_[i].back();
+        if (x1 < x2) {
+          seg.x1 = x1;
+          seg.x2 = x2;
+          seg.y1 = y1;
+          seg.y2 = y2;
+        } else {
+          seg.x1 = x2;
+          seg.x2 = x1;
+          seg.y1 = y2;
+          seg.y2 = y1;
+        }
+
+        seg.netID = i;
+      }
+    }  // loop j
+  }
+
+  routeLAll(true);
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+
+    Tree rsmt = rsmt_trees[i];
+    
+    copyStTree(i, rsmt);
+    newrouteL(
+        i,
+        RouteType::NoRoute,
+        true);  // route the net with no previous route for each tree edge
+  }
+}
+
+void FastRouteCore::gen_brk_FLUTE(const bool reRoute,
+                                  const bool genTree)
+{
+  logger_->report("===== gen_brk_FLUTE =====");
+  Tree rsmt;
+  int numShift = 0;
+
+  int wl = 0;
+  int wl1 = 0;
+  int totalNumSeg = 0;
+
+  const int flute_accuracy = 2;
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+
+    int d = net->getNumPins();
+
+    if (reRoute) {
+      // remove the est_usage due to the segments in this net
+      for (auto& seg : seglist_[i]) {
+        ripupSegL(&seg);
+      }
+    }
+
+    float coeffV = 1.0;
+
+    fluteNormal(
+        i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+        
+    if (debug_->isOn() && debug_->steinerTree_
+        && net->getDbNet() == debug_->net_) {
+      steinerTreeVisualization(rsmt, net);
+    }
+
+    if (genTree) {
+      copyStTree(i, rsmt);
+    }
+
+    if (net->getNumPins() != rsmt.deg) {
+      d = rsmt.deg;
+    }
+
+    for (int j = 0; j < rsmt.branchCount(); j++) {
+      const int x1 = rsmt.branch[j].x;
+      const int y1 = rsmt.branch[j].y;
+      const int n = rsmt.branch[j].n;
+      const int x2 = rsmt.branch[n].x;
+      const int y2 = rsmt.branch[n].y;
+
+      wl += abs(x1 - x2) + abs(y1 - y2);
+
+      if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+        // the position of this segment in seglist
+        seglist_[i].push_back(Segment());
+        auto& seg = seglist_[i].back();
+        if (x1 < x2) {
+          seg.x1 = x1;
+          seg.x2 = x2;
+          seg.y1 = y1;
+          seg.y2 = y2;
+        } else {
+          seg.x1 = x2;
+          seg.x2 = x1;
+          seg.y1 = y2;
+          seg.y2 = y1;
+        }
+
+        seg.netID = i;
+      }
+    }  // loop j
+
+    totalNumSeg += seglist_[i].size();
+
+    if (reRoute) {
+      // update the est_usage due to the segments in this net
+      newrouteL(
+          i,
+          RouteType::NoRoute,
+          true);  // route the net with no previous route for each tree edge
+    }
+  }  // loop i
+
+  debugPrint(logger_,
+             GRT,
+             "rsmt",
+             1,
+             "Wirelength: {}, Wirelength1: {}\nNumber of segments: {}\nNumber "
+             "of shifts: {}",
+             wl,
+             wl1,
+             totalNumSeg,
+             numShift);
+}
+
+void FastRouteCore::writeRSMTInputFile(const char* filename)
+{
+  std::ofstream out(filename);
+  
+  if (!out) {
+    logger_->error(GRT, 999, "Cannot open file {}.", filename);
+  }
+
+  out << "HCAP " << h_edges_.size() << ' ' << h_edges_[0].size() << '\n';
+  for (int y = 0; y < h_edges_.size(); y++) {
+    for (int x = 0; x < h_edges_[y].size(); x++) {
+      out << h_edges_[y][x].cap << ' ';
+    }
+    out << '\n';
+  }
+
+  out << "VCAP " << v_edges_.size() << ' ' << v_edges_[0].size() << '\n';
+  for (int y = 0; y < v_edges_.size(); y++) {
+    for (int x = 0; x < v_edges_[y].size(); x++) {
+      out << v_edges_[y][x].cap << ' ';
+    }
+    out << '\n';
+  }
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+    FrNet* net = nets_[i];
+    out << "NET " << i << ' ' << net->getNumPins() << '\n';
+    for (int j = 0; j < net->getNumPins(); j++) {
+      out << net->getPinX(j) << " " << net->getPinY(j) << '\n';
+    }
+  }
+}
+
+std::vector<Tree> FastRouteCore::readRSMTOutputFile(const char* filename) 
+{
+    std::ifstream file(filename);
+    std::string line;
+    std::vector<Tree> rsmt_trees;
+    Tree rsmt;
+    stt::Branch branch;
+    int netId;
+
+    if (file.is_open()) {
+        while (getline(file, line)) {
+            std::istringstream iss(line);
+            std::string token;
+            iss >> token;
+            if (token == "NET") {
+                iss >> netId;
+            } else if (token == "DEGREE") {
+                iss >> rsmt.deg;
+            } else if (token == "LENGTH") {
+                iss >> rsmt.length;
+            } else if (token == "BRANCH") {
+                int branchCount;
+                iss >> branchCount;
+                rsmt.branch.clear();
+                rsmt.branch.reserve(branchCount);
+                for (int i = 0; i < branchCount; i++) {
+                    getline(file, line);
+                    // std::cout << line << std::endl;
+                    iss = std::istringstream(line);
+                    iss >> branch.x >> branch.y >> branch.n;
+                    rsmt.branch.push_back(branch);
+                }
+                rsmt_trees.push_back(rsmt);
+            }
+        }
+        file.close();
+    } else {
+        std::cerr << "Unable to open file";
+    }
+    return rsmt_trees;
+}
+
+
 }  // namespace grt
