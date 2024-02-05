@@ -808,17 +808,21 @@ static std::string getCurrentTimeString() {
 
 void FastRouteCore::gen_brk_CAREST(int iterations)
 {
+  char command[1024];
   logger_->report("===== FastRouteCore::gen_brk_CAREST =====");
+  std::string temp_dir = "_temp";
+
+  sprintf(command, "mkdir -p %s", temp_dir.c_str());
+  system(command);
 
   std::string current_time = getCurrentTimeString();
 
-  std::string rsmt_input_file = "rsmt_input_" + current_time + ".txt";
+  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
   writeRSMTInputFile(rsmt_input_file.c_str());
 
-  logger_->report("RSMT input file written to ", rsmt_input_file);
+  logger_->report("RSMT input file written to {}", rsmt_input_file);
 
-  std::string rsmt_output_directory = "output_" + current_time;
-  char command[1024];
+  std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
   sprintf(command, 
     "carest_fastroute --rsmtinput %s --outdir %s --target_iteration_ratio %d", 
       rsmt_input_file.c_str(), rsmt_output_directory.c_str(), iterations);
