@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <unordered_set>
+#include <cstdlib>
 
 #include "AbstractFastRouteRenderer.h"
 #include "DataType.h"
@@ -868,7 +869,7 @@ void FastRouteCore::updateDbCongestion()
   }
 }
 
-NetRouteMap FastRouteCore::run()
+NetRouteMap FastRouteCore::run(bool call_from_main)
 {
   if (netCount() == 0) {
     return getRoutes();
@@ -922,9 +923,39 @@ NetRouteMap FastRouteCore::run()
   // call FLUTE to generate RSMT and break the nets into segments (2-pin nets)
 
   via_cost_ = 0;
-  gen_brk_RSMT(false, false, false, false, noADJ);
-  routeLAll(true);
-  gen_brk_RSMT(true, true, true, false, noADJ);
+
+  const char* env_var = getenv("STEINERTREE_ALGORITHM");
+  const int DEFAULT_ALGORITHM = 0;
+  const int FLUTE_ALGORITHM = 1;
+  const int REST_ALGORITHM = 2;
+  const int MY_ALGORITHM = 3;
+
+  int algorithm;
+  if (env_var == nullptr) {
+    algorithm = DEFAULT_ALGORITHM;
+  } else {
+    algorithm = atoi(env_var);
+  }
+
+  if (!call_from_main) {
+    // Routability Estimation @NesterovSolve
+    gen_brk_FLUTE(false, false);
+    routeLAll(true);
+    gen_brk_FLUTE(true, true);
+  } else if (algorithm == FLUTE_ALGORITHM) {
+    gen_brk_FLUTE(false, false);
+    routeLAll(true);
+    gen_brk_FLUTE(true, true);
+  } else if (algorithm == REST_ALGORITHM) {
+    gen_brk_CAREST(0);
+  } else if (algorithm == MY_ALGORITHM) {
+    gen_brk_CAREST(10);
+  } else {
+    // Default
+    gen_brk_RSMT(false, false, false, false, noADJ);
+    routeLAll(true);
+    gen_brk_RSMT(true, true, true, false, noADJ);
+  }
 
   getOverflow2D(&maxOverflow);
   newrouteLAll(false, true);

@@ -31,6 +31,11 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <ctime>
 
 #include "AbstractFastRouteRenderer.h"
 #include "DataType.h"
@@ -792,15 +797,34 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
              numShift);
 }
 
-void FastRouteCore::gen_brk_CAREST()
+static std::string getCurrentTimeString() {
+    std::time_t now = std::time(nullptr);
+    std::tm* ptm = std::localtime(&now);
+    char buffer[32];
+    // Format: YYYYMMDD-HHMMSS
+    std::strftime(buffer, 32, "%Y%m%d-%H%M%S", ptm); 
+    return std::string(buffer);
+}
+
+void FastRouteCore::gen_brk_CAREST(int iterations)
 {
   logger_->report("===== FastRouteCore::gen_brk_CAREST =====");
 
-  writeRSMTInputFile("rsmt_input.txt");
-  std::string dummy;
-  std::cout << "WAIT FOR OUTPUT";
-  std::cin >> dummy;
-  std::vector<Tree> rsmt_trees = readRSMTOutputFile("rsmt_output.txt");
+  std::string current_time = getCurrentTimeString();
+
+  std::string rsmt_input_file = "rsmt_input_" + current_time + ".txt";
+  writeRSMTInputFile(rsmt_input_file.c_str());
+
+  logger_->report("RSMT input file written to ", rsmt_input_file);
+
+  std::string rsmt_output_directory = "output_" + current_time;
+  char command[1024];
+  sprintf(command, 
+    "carest_fastroute --rsmtinput %s --outdir %s --target_iteration_ratio %d", 
+      rsmt_input_file.c_str(), rsmt_output_directory.c_str(), iterations);
+  system(command);
+  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
+  std::vector<Tree> rsmt_trees = readRSMTOutputFile(final_st_trees_file.c_str());
 
   for (int i = 0; i < netCount(); i++) {
     if (skipNet(i)) {

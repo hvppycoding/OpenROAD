@@ -246,7 +246,8 @@ bool GlobalRouter::haveRoutes()
 
 void GlobalRouter::globalRoute(bool save_guides,
                                bool start_incremental,
-                               bool end_incremental)
+                               bool end_incremental,
+                               bool call_from_main)
 {
   if (start_incremental && end_incremental) {
     logger_->error(GRT,
@@ -258,7 +259,7 @@ void GlobalRouter::globalRoute(bool save_guides,
     grouter_cbk_->addOwner(block_);
   } else {
     if (end_incremental) {
-      updateDirtyRoutes();
+      updateDirtyRoutes(false, call_from_main);
       grouter_cbk_->removeOwner();
       delete grouter_cbk_;
       grouter_cbk_ = nullptr;
@@ -281,7 +282,7 @@ void GlobalRouter::globalRoute(bool save_guides,
         reportResources();
       }
 
-      routes_ = findRouting(nets, min_layer, max_layer);
+      routes_ = findRouting(nets, min_layer, max_layer, call_from_main);
     }
 
     updateDbCongestion();
@@ -394,13 +395,14 @@ void GlobalRouter::destroyNetWires()
 
 NetRouteMap GlobalRouter::findRouting(std::vector<Net*>& nets,
                                       int min_routing_layer,
-                                      int max_routing_layer)
+                                      int max_routing_layer,
+                                      bool call_from_main)
 {
   NetRouteMap routes;
   if (!nets.empty()) {
     MakeWireParasitics builder(logger_, resizer_, sta_, db_->getTech(), this);
     fastroute_->setMakeWireParasiticsBuilder(&builder);
-    routes = fastroute_->run();
+    routes = fastroute_->run(call_from_main);
     fastroute_->setMakeWireParasiticsBuilder(nullptr);
     addRemainingGuides(routes, nets, min_routing_layer, max_routing_layer);
     connectPadPins(routes);
@@ -3877,7 +3879,7 @@ void GlobalRouter::addDirtyNet(odb::dbNet* net)
   dirty_nets_.insert(net);
 }
 
-void GlobalRouter::updateDirtyRoutes(bool save_guides)
+void GlobalRouter::updateDirtyRoutes(bool save_guides, bool call_from_main)
 {
   if (!dirty_nets_.empty()) {
     fastroute_->setVerbose(false);
@@ -3903,7 +3905,7 @@ void GlobalRouter::updateDirtyRoutes(bool save_guides)
     initFastRouteIncr(dirty_nets);
 
     NetRouteMap new_route
-        = findRouting(dirty_nets, min_routing_layer_, max_routing_layer_);
+        = findRouting(dirty_nets, min_routing_layer_, max_routing_layer_, call_from_main);
     mergeResults(new_route);
 
     bool reroutingOverflow = true;
@@ -3929,7 +3931,7 @@ void GlobalRouter::updateDirtyRoutes(bool save_guides)
         // The dirty nets are initialized and then routed
         initFastRouteIncr(dirty_nets);
         NetRouteMap new_route
-            = findRouting(dirty_nets, min_routing_layer_, max_routing_layer_);
+            = findRouting(dirty_nets, min_routing_layer_, max_routing_layer_, call_from_main);
         mergeResults(new_route);
         add_max--;
       }

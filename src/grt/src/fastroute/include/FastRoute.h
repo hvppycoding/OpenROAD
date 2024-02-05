@@ -150,7 +150,7 @@ class FastRouteCore
       const interval<int>::type& last_tile_reduce_interval);
   void initBlockedIntervals(std::vector<int>& track_space);
   void initAuxVar();
-  NetRouteMap run();
+  NetRouteMap run(bool call_from_main = false);
   int totalOverflow() const { return total_overflow_; }
   bool has2Doverflow() const { return has_2D_overflow_; }
   void updateDbCongestion();
@@ -378,7 +378,7 @@ class FastRouteCore
                     const bool genTree,
                     const bool newType,
                     const bool noADJ);
-  void gen_brk_CAREST();
+  void gen_brk_CAREST(int iterations);
   void gen_brk_FLUTE(const bool reRoute, 
                      const bool genTree);
   void fluteNormal(const int netID,
