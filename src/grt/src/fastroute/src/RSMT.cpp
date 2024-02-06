@@ -810,25 +810,10 @@ void FastRouteCore::gen_brk_CAREST(int iterations)
 {
   char command[1024];
   logger_->report("===== FastRouteCore::gen_brk_CAREST =====");
-  std::string temp_dir = "_temp";
+  std::vector<Tree> rsmt_trees = runCAREST(iterations);
 
-  sprintf(command, "mkdir -p %s", temp_dir.c_str());
-  system(command);
-
-  std::string current_time = getCurrentTimeString();
-
-  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
-  writeRSMTInputFile(rsmt_input_file.c_str());
-
-  logger_->report("RSMT input file written to {}", rsmt_input_file);
-
-  std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
-  sprintf(command, 
-    "carest_fastroute --rsmtinput %s --outdir %s --target_iteration_ratio %d", 
-      rsmt_input_file.c_str(), rsmt_output_directory.c_str(), iterations);
-  system(command);
-  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
-  std::vector<Tree> rsmt_trees = readRSMTOutputFile(final_st_trees_file.c_str());
+  logger_->report("Net count: {}", netCount());
+  logger_->report("RSMT trees count: {}", rsmt_trees.size());
 
   for (int i = 0; i < netCount(); i++) {
     if (skipNet(i)) {
@@ -983,7 +968,99 @@ void FastRouteCore::gen_brk_FLUTE(const bool reRoute,
              numShift);
 }
 
-void FastRouteCore::writeRSMTInputFile(const char* filename)
+
+void FastRouteCore::gen_brk_HYBRID(int iterations)
+{
+  logger_->report("===== gen_brk_HYBRID =====");
+  
+  int numShift = 0;
+
+  int totalNumSeg = 0;
+
+  std::vector<Tree> flute_rsmts;
+
+  const int carest_limit_degree = 50;
+  const int flute_accuracy = 2;
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    float coeffV = 1.0;
+
+    
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+    if (d > carest_limit_degree) {
+      Tree rsmt;
+      fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+      flute_rsmts.push_back(rsmt);
+      for (int j = 0; j < rsmt.branchCount(); j++) {
+        const int x1 = rsmt.branch[j].x;
+        const int y1 = rsmt.branch[j].y;
+        const int n = rsmt.branch[j].n;
+        const int x2 = rsmt.branch[n].x;
+        const int y2 = rsmt.branch[n].y;
+
+        if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+          // the position of this segment in seglist
+          seglist_[i].push_back(Segment());
+          auto& seg = seglist_[i].back();
+          if (x1 < x2) {
+            seg.x1 = x1;
+            seg.x2 = x2;
+            seg.y1 = y1;
+            seg.y2 = y2;
+          } else {
+            seg.x1 = x2;
+            seg.x2 = x1;
+            seg.y1 = y2;
+            seg.y2 = y1;
+          }
+
+          seg.netID = i;
+        }
+      }  // loop j
+    }
+  }
+
+  routeLAll(true);
+
+  std::vector<Tree> carest_rsmts = runCAREST(iterations, carest_limit_degree);
+  logger_->report("Net count: {}", netCount());
+  logger_->report("Carest RSMTs count: {}", carest_rsmts.size());
+  logger_->report("Flute RSMTs count: {}", flute_rsmts.size());
+
+  int carest_index = 0;
+  int flute_index = 0;
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (d > carest_limit_degree) {
+      for (auto& seg : seglist_[i]) {
+        ripupSegL(&seg);
+      }
+      Tree rsmt = flute_rsmts[flute_index++];
+      copyStTree(i, rsmt);
+    } else {
+      Tree rsmt = carest_rsmts[carest_index++];
+      copyStTree(i, rsmt);
+    }
+    
+    newrouteL(
+        i,
+        RouteType::NoRoute,
+        true);  // route the net with no previous route for each tree edge
+  }
+}
+
+void FastRouteCore::writeRSMTInputFile(const char* filename, int limit_degree)
 {
   std::ofstream out(filename);
   
@@ -994,7 +1071,7 @@ void FastRouteCore::writeRSMTInputFile(const char* filename)
   out << "HCAP " << h_edges_.size() << ' ' << h_edges_[0].size() << '\n';
   for (int y = 0; y < h_edges_.size(); y++) {
     for (int x = 0; x < h_edges_[y].size(); x++) {
-      out << h_edges_[y][x].cap << ' ';
+      out << std::max(h_edges_[y][x].cap - int(h_edges_[y][x].est_usage), 0) << ' ';
     }
     out << '\n';
   }
@@ -1002,7 +1079,7 @@ void FastRouteCore::writeRSMTInputFile(const char* filename)
   out << "VCAP " << v_edges_.size() << ' ' << v_edges_[0].size() << '\n';
   for (int y = 0; y < v_edges_.size(); y++) {
     for (int x = 0; x < v_edges_[y].size(); x++) {
-      out << v_edges_[y][x].cap << ' ';
+      out << std::max(v_edges_[y][x].cap - int(v_edges_[y][x].est_usage), 0) << ' ';
     }
     out << '\n';
   }
@@ -1012,7 +1089,11 @@ void FastRouteCore::writeRSMTInputFile(const char* filename)
       continue;
     }
     FrNet* net = nets_[i];
-    out << "NET " << i << ' ' << net->getNumPins() << '\n';
+    if (limit_degree != -1 && net->getNumPins() > limit_degree) {
+      continue;
+    }
+    out << "NET " << i << ' ' << net->getNumPins() 
+        << " DRV " << net->getDriverIdx() << '\n';
     for (int j = 0; j < net->getNumPins(); j++) {
       out << net->getPinX(j) << " " << net->getPinY(j) << '\n';
     }
@@ -1061,5 +1142,42 @@ std::vector<Tree> FastRouteCore::readRSMTOutputFile(const char* filename)
     return rsmt_trees;
 }
 
+std::vector<Tree> FastRouteCore::runCAREST(int iterations, int limit_degree)
+{
+  char command[1024];
+  std::string temp_dir = "_temp";
+
+  sprintf(command, "mkdir -p %s", temp_dir.c_str());
+  system(command);
+
+  std::string current_time = getCurrentTimeString();
+  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
+  writeRSMTInputFile(rsmt_input_file.c_str(), limit_degree);
+  logger_->report("RSMT input file written to {}", rsmt_input_file);
+  std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
+
+  std::string command_str = "carest_fastroute";
+  command_str += " --rsmtinput " + rsmt_input_file;
+  command_str += " --outdir " + rsmt_output_directory;
+  command_str += " --target_iteration_ratio " + std::to_string(iterations);
+  const char* env_wwl = getenv("WEIGHT_WIRELENGTH");
+  if (env_wwl != nullptr) {
+    command_str += " --weight_wirelength " + std::string(env_wwl);
+  }
+  const char* env_wpl = getenv("WEIGHT_MAXPATHLENGTH");
+  if (env_wpl != nullptr) {
+    command_str += " --weight_maxpathlength " + std::string(env_wpl);
+  }
+  const char* env_wof = getenv("WEIGHT_OVERFLOW");
+  if (env_wof != nullptr) {
+    command_str += " --weight_overflow " + std::string(env_wof);
+  }
+  system(command_str.c_str());
+
+  logger_->report("jayoung-command: {}", command_str);
+
+  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
+  return readRSMTOutputFile(final_st_trees_file.c_str());
+}
 
 }  // namespace grt

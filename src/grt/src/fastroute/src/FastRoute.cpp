@@ -929,6 +929,8 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   const int FLUTE_ALGORITHM = 1;
   const int REST_ALGORITHM = 2;
   const int MY_ALGORITHM = 3;
+  const int HYBRID_ALGORITHM = 4;
+  const int HYBRID_REST_ALGORITHM = 5;
 
   int algorithm;
   if (env_var == nullptr) {
@@ -939,19 +941,30 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
 
   if (!call_from_main) {
     // Routability Estimation @NesterovSolve
+    logger_->report("Jayoung: NO CALL FROM MAIN");
     gen_brk_FLUTE(false, false);
     routeLAll(true);
     gen_brk_FLUTE(true, true);
   } else if (algorithm == FLUTE_ALGORITHM) {
+    logger_->report("Jayoung: FLUTE_ALGORITHM");
     gen_brk_FLUTE(false, false);
     routeLAll(true);
     gen_brk_FLUTE(true, true);
   } else if (algorithm == REST_ALGORITHM) {
+    logger_->report("Jayoung: REST_ALGORITHM");
     gen_brk_CAREST(0);
   } else if (algorithm == MY_ALGORITHM) {
+    logger_->report("Jayoung: MY_ALGORITHM");
     gen_brk_CAREST(10);
+  } else if (algorithm == HYBRID_ALGORITHM) {
+    logger_->report("Jayoung: HYBRID_ALGORITHM");
+    gen_brk_HYBRID(10);
+  } else if (algorithm == HYBRID_REST_ALGORITHM) {
+    logger_->report("Jayoung: HYBRID_REST_ALGORITHM");
+    gen_brk_HYBRID(0);
   } else {
     // Default
+    logger_->report("Jayoung: DEFAULT_ALGORITHM");
     gen_brk_RSMT(false, false, false, false, noADJ);
     routeLAll(true);
     gen_brk_RSMT(true, true, true, false, noADJ);
