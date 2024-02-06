@@ -1176,8 +1176,29 @@ std::vector<Tree> FastRouteCore::runCAREST(int iterations, int limit_degree)
 
   logger_->report("jayoung-command: {}", command_str);
 
+  std::string summary_file = rsmt_output_directory + "/summary.txt";
+  readSummaryFile(summary_file.c_str());
+
   std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
   return readRSMTOutputFile(final_st_trees_file.c_str());
+}
+
+void FastRouteCore::readSummaryFile(const char* filename) 
+{
+  std::ifstream file(filename);
+  std::string line;
+
+  if (file.is_open()) {
+    logger_->report("===== Summary file =====");
+    while (getline(file, line)) {
+        std::istringstream iss(line);
+        logger_->report(line);
+    }
+    file.close();
+    logger_->report("===== End of summary file =====");
+  } else {
+      logger_->report("Unable to open summary file {}", filename);
+  }
 }
 
 }  // namespace grt

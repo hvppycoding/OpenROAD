@@ -505,8 +505,9 @@ class FastRouteCore
   int netCount() const { return nets_.size(); }
   void writeRSMTInputFile(const char* filename, int limit_degree=-1);
   std::vector<Tree> readRSMTOutputFile(const char* filename);
+  void readSummaryFile(const char* filename);
   std::vector<Tree> runCAREST(int iterations, int limit_degree=-1);
-
+  
   typedef std::tuple<int, int, int> Tile;
 
   static const int MAXLEN = 20000;
