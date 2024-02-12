@@ -941,24 +941,55 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     }
   }
 
-  // Update est_usage before runCAREST
-  routeLAll(true);
-
-  std::vector<Tree> carest_rsmts = runCAREST(iterations, carest_limit_degree);
-  logger_->report("Net count: {}", netCount());
-  logger_->report("Carest RSMTs count: {}", carest_rsmts.size());
-  logger_->report("Flute RSMTs count: {}", flute_rsmts.size());
-
-  // Clear est_usage after runCAREST
+  // ===== FLUTE LROUTE BEGIN =====
+  // estimate congestion with 0.5+0.5 L
   for (int i = 0; i < netCount(); i++) {
     if (skipNet(i)) {
       continue;
     }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (d > carest_limit_degree) {
+      for (auto& seg : seglist_[i]) {
+        estimateOneSeg(&seg);
+      }
+    }
+  }
+  // L route
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (d > carest_limit_degree) {
+      for (auto& seg : seglist_[i]) {
+      // no need to reroute the H or V segs
+        if (seg.x1 != seg.x2 || seg.y1 != seg.y2)
+          routeSegLFirstTime(&seg);
+      }
+    }
+  }
+  // ===== FLUTE LROUTE END =====
+
+  std::vector<Tree> carest_rsmts = runCAREST(iterations, carest_limit_degree);
+
+  // ===== RIPUP FLUTE LROUTE BEGIN =====
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
     for (auto& seg : seglist_[i]) {
       ripupSegL(&seg);
     }
     seglist_[i].clear();
   }
+  // ===== RIPUP FLUTE LROUTE END =====
 
   int carest_index = 0;
   int flute_index = 0;
@@ -972,7 +1003,6 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     int d = net->getNumPins();
 
     Tree rsmt;
-
     if (d > carest_limit_degree) {
       rsmt = flute_rsmts[flute_index++];
     } else {
