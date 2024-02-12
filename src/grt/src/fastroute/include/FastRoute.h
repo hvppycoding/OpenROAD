@@ -383,6 +383,15 @@ class FastRouteCore
                     const bool genTree,
                     const bool newType,
                     const bool noADJ);
+  Tree fixTreeFromFlute(const Tree& rsmt, 
+                        const std::vector<int>& x, 
+                        const std::vector<int>& y, 
+                        const int driver_idx);
+  void fixTreeFromFluteHelper(int node,
+                              const std::vector<std::vector<int> >& graph,
+                              Tree& rsmt);
+  void gen_brk_FLUTE(const bool reRoute, 
+                     const bool genTree);
   void fluteNormal(const int netID,
                    const std::vector<int>& x,
                    const std::vector<int>& y,

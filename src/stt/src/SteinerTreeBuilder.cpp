@@ -47,7 +47,7 @@ namespace stt {
 static void reportSteinerBranches(const stt::Tree& tree, Logger* logger);
 
 SteinerTreeBuilder::SteinerTreeBuilder()
-    : alpha_(0.3),
+    : alpha_(0.0),
       min_fanout_alpha_({0, -1}),
       min_hpwl_alpha_({0, -1}),
       logger_(nullptr),

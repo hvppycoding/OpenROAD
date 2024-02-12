@@ -928,9 +928,12 @@ NetRouteMap FastRouteCore::run()
   // call FLUTE to generate RSMT and break the nets into segments (2-pin nets)
 
   via_cost_ = 0;
-  gen_brk_RSMT(false, false, false, false, noADJ);
+  // gen_brk_RSMT(false, false, false, false, noADJ);
+  // routeLAll(true);
+  // gen_brk_RSMT(true, true, true, false, noADJ);
+  gen_brk_FLUTE(false, false);
   routeLAll(true);
-  gen_brk_RSMT(true, true, true, false, noADJ);
+  gen_brk_FLUTE(true, true);
 
   getOverflow2D(&maxOverflow);
   newrouteLAll(false, true);

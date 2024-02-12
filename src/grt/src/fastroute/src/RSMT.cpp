@@ -720,7 +720,18 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
         fluteNormal(
             i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
       }
+
+      rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
     }
+
+    logger_->report("Net {}", i);
+    for (int k = 0; k < net->getNumPins(); k++) {
+      logger_->report("Pin {}: ({}, {})", k, net->getPinX()[k], net->getPinY()[k]);
+    }
+    for (int k = 0; k < rsmt.branchCount(); k++) {
+      logger_->report("Branch {}: ({}, {}) -> {}", k, rsmt.branch[k].x, rsmt.branch[k].y, rsmt.branch[k].n);
+    }
+
     if (debug_->isOn() && debug_->steinerTree_
         && net->getDbNet() == debug_->net_) {
       steinerTreeVisualization(rsmt, net);
@@ -790,5 +801,208 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
              totalNumSeg,
              numShift);
 }
+
+Tree FastRouteCore::fixTreeFromFlute(const Tree& rsmt,
+                                     const std::vector<int>& x,
+                                     const std::vector<int>& y,
+                                     const int driver_idx)
+{
+  const int d = x.size();
+
+  Tree new_tree = Tree();
+  new_tree.deg = d;
+  new_tree.branch.resize(rsmt.branchCount());
+
+  std::set<int> visited;
+  std::vector<int> org2flute(d, -1);
+  std::vector<int> flute2org(d, -1);
+
+  for (int i = 0; i < d; i++) {
+    int org_x = x[i];
+    int org_y = y[i];
+    bool found = false;
+    for (int j = 0; j < d; j++) {
+      if (visited.find(j) != visited.end()) {
+        // already visited
+        continue;
+      }
+      int flute_x = rsmt.branch[j].x;
+      int flute_y = rsmt.branch[j].y;
+      if (org_x == flute_x && org_y == flute_y) {
+        org2flute[i] = j;
+        flute2org[j] = i;
+        visited.insert(j);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      logger_->error(GRT, 999, "Cannot find the original terminal in the FLUTE tree.");
+    }
+  }
+  for (int i = 0; i < rsmt.branchCount(); i++) {
+    if (i < d) {
+      new_tree.branch[i].x = x[i];
+      new_tree.branch[i].y = y[i];
+      new_tree.branch[i].n = -1;
+    } else {
+      new_tree.branch[i].x = rsmt.branch[i].x;
+      new_tree.branch[i].y = rsmt.branch[i].y;
+      new_tree.branch[i].n = -1;
+    }
+  }
+
+  std::vector<std::vector<int> > graph(rsmt.branchCount(), std::vector<int>());
+
+  for (int flute_i = 0; flute_i < rsmt.branchCount(); flute_i++) {
+    int flute_n = rsmt.branch[flute_i].n;
+    int org_i = flute_i;
+    int org_n = flute_n;
+    if (org_i < d) {
+      org_i = flute2org[flute_i];
+    }
+    if (org_n < d) {
+      org_n = flute2org[flute_n];
+    }
+    graph[org_i].push_back(org_n);
+    graph[org_n].push_back(org_i);
+  }
+
+  new_tree.branch[driver_idx].n = driver_idx;
+  fixTreeFromFluteHelper(driver_idx, graph, new_tree);
+
+  return new_tree;
+}
+
+void FastRouteCore::fixTreeFromFluteHelper(int node,
+                                           const std::vector<std::vector<int> >& graph,
+                                           Tree& rsmt)
+{
+  for (int i = 0; i < graph[node].size(); i++) {
+    int child = graph[node][i];
+    if (rsmt.branch[child].n == -1) {
+      rsmt.branch[child].n = node;
+      fixTreeFromFluteHelper(child, graph, rsmt);
+    }
+  }
+}
+
+
+void FastRouteCore::gen_brk_FLUTE(const bool reRoute,
+                                  const bool genTree)
+{
+  logger_->report("==== gen_brk_FLUTE ====");
+  Tree rsmt;
+  int numShift = 0;
+
+  int wl = 0;
+  int wl1 = 0;
+  int totalNumSeg = 0;
+
+  const int flute_accuracy = 2;
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+
+    int d = net->getNumPins();
+
+    if (reRoute) {
+      // remove the est_usage due to the segments in this net
+      for (auto& seg : seglist_[i]) {
+        ripupSegL(&seg);
+      }
+    }
+
+
+    float coeffV = 1.0;
+    fluteNormal(
+        i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+
+    if (debug_->isOn() && debug_->steinerTree_
+        && net->getDbNet() == debug_->net_) {
+      steinerTreeVisualization(rsmt, net);
+    }
+
+    logger_->report("Net {}", i);
+    for (int k = 0; k < net->getNumPins(); k++) {
+      logger_->report("Pin {}: ({}, {})", k, net->getPinX()[k], net->getPinY()[k]);
+    }
+    logger_->report("Before Fix");
+    for (int i = 0; i < rsmt.branchCount(); i++) {
+      logger_->report("Branch {}: ({}, {}) -> {}", i, rsmt.branch[i].x, rsmt.branch[i].y, rsmt.branch[i].n);
+    }
+
+    rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+
+    logger_->report("After Fix");
+    for (int i = 0; i < rsmt.branchCount(); i++) {
+      logger_->report("Branch {}: ({}, {}) -> {}", i, rsmt.branch[i].x, rsmt.branch[i].y, rsmt.branch[i].n);
+    }
+
+    if (genTree) {
+      copyStTree(i, rsmt);
+    }
+
+    if (net->getNumPins() != rsmt.deg) {
+      d = rsmt.deg;
+    }
+
+    for (int j = 0; j < rsmt.branchCount(); j++) {
+      const int x1 = rsmt.branch[j].x;
+      const int y1 = rsmt.branch[j].y;
+      const int n = rsmt.branch[j].n;
+      const int x2 = rsmt.branch[n].x;
+      const int y2 = rsmt.branch[n].y;
+
+      wl += abs(x1 - x2) + abs(y1 - y2);
+
+      if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+        // the position of this segment in seglist
+        seglist_[i].push_back(Segment());
+        auto& seg = seglist_[i].back();
+        if (x1 < x2) {
+          seg.x1 = x1;
+          seg.x2 = x2;
+          seg.y1 = y1;
+          seg.y2 = y2;
+        } else {
+          seg.x1 = x2;
+          seg.x2 = x1;
+          seg.y1 = y2;
+          seg.y2 = y1;
+        }
+
+        seg.netID = i;
+      }
+    }  // loop j
+
+    totalNumSeg += seglist_[i].size();
+
+    if (reRoute) {
+      // update the est_usage due to the segments in this net
+      newrouteL(
+          i,
+          RouteType::NoRoute,
+          true);  // route the net with no previous route for each tree edge
+    }
+  }  // loop i
+
+  debugPrint(logger_,
+             GRT,
+             "rsmt",
+             1,
+             "Wirelength: {}, Wirelength1: {}\nNumber of segments: {}\nNumber "
+             "of shifts: {}",
+             wl,
+             wl1,
+             totalNumSeg,
+             numShift);
+}
+
+
 
 }  // namespace grt
