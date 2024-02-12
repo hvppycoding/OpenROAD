@@ -413,6 +413,7 @@ class FastRouteCore
   void spiralRouteAll();
   void newrouteLInMaze(int netID);
   void estimateOneSeg(Segment* seg);
+  void undoEstimateOneSeg(Segment* seg);
   void routeSegV(Segment* seg);
   void routeSegH(Segment* seg);
   void routeSegLFirstTime(Segment* seg);

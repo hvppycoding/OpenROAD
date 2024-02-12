@@ -745,6 +745,10 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
         wl1 += sttrees_[i].edges[j].len;
     }
 
+    for (int k = 0; k < net->getNumPins(); k++) {
+      logger_->report("{}: x {}, y {}", k, net->getPinX()[k], net->getPinY()[k]);
+    }
+
     for (int j = 0; j < rsmt.branchCount(); j++) {
       const int x1 = rsmt.branch[j].x;
       const int y1 = rsmt.branch[j].y;
@@ -769,6 +773,8 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
           seg.y1 = y2;
           seg.y2 = y1;
         }
+
+        logger_->report("x1 {} x2 {} y1 {} y2 {}", x1, x2, y1, y2);
 
         seg.netID = i;
       }
@@ -989,7 +995,6 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
 
     float coeffV = 1.0;
 
-    
     FrNet* net = nets_[i];
     int d = net->getNumPins();
     if (d > carest_limit_degree) {
@@ -1025,6 +1030,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     }
   }
 
+  // Update est_usage before runCAREST
   routeLAll(true);
 
   std::vector<Tree> carest_rsmts = runCAREST(iterations, carest_limit_degree);
@@ -1032,8 +1038,20 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
   logger_->report("Carest RSMTs count: {}", carest_rsmts.size());
   logger_->report("Flute RSMTs count: {}", flute_rsmts.size());
 
+  // Clear est_usage after runCAREST
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+    seglist_[i].clear();
+  }
+
   int carest_index = 0;
   int flute_index = 0;
+
   for (int i = 0; i < netCount(); i++) {
     if (skipNet(i)) {
       continue;
@@ -1042,10 +1060,59 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     FrNet* net = nets_[i];
     int d = net->getNumPins();
 
+    Tree rsmt;
+
     if (d > carest_limit_degree) {
-      for (auto& seg : seglist_[i]) {
-        ripupSegL(&seg);
+      rsmt = flute_rsmts[flute_index++];
+    } else {
+      rsmt = carest_rsmts[carest_index++];
+    }
+
+    for (int j = 0; j < rsmt.branchCount(); j++) {
+      const int x1 = rsmt.branch[j].x;
+      const int y1 = rsmt.branch[j].y;
+      const int n = rsmt.branch[j].n;
+      const int x2 = rsmt.branch[n].x;
+      const int y2 = rsmt.branch[n].y;
+
+      if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+        // the position of this segment in seglist
+        seglist_[i].push_back(Segment());
+        auto& seg = seglist_[i].back();
+        if (x1 < x2) {
+          seg.x1 = x1;
+          seg.x2 = x2;
+          seg.y1 = y1;
+          seg.y2 = y2;
+        } else {
+          seg.x1 = x2;
+          seg.x2 = x1;
+          seg.y1 = y2;
+          seg.y2 = y1;
+        }
+
+        seg.netID = i;
       }
+    }  // loop j
+  }
+
+  routeLAll(true);
+
+  carest_index = 0;
+  flute_index = 0;
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+
+    if (d > carest_limit_degree) {
       Tree rsmt = flute_rsmts[flute_index++];
       copyStTree(i, rsmt);
     } else {
