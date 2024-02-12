@@ -961,10 +961,10 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
     gen_brk_CAREST(0);
   } else if (algorithm == MY_ALGORITHM) {
     logger_->report("Jayoung: MY_ALGORITHM");
-    gen_brk_CAREST(10);
+    gen_brk_CAREST(5);
   } else if (algorithm == HYBRID_ALGORITHM) {
     logger_->report("Jayoung: HYBRID_ALGORITHM");
-    gen_brk_HYBRID(10);
+    gen_brk_HYBRID(5);
   } else if (algorithm == HYBRID_REST_ALGORITHM) {
     logger_->report("Jayoung: HYBRID_REST_ALGORITHM");
     gen_brk_HYBRID(0);

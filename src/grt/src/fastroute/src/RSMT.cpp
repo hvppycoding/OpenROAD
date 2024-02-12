@@ -895,7 +895,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
 
   std::vector<Tree> flute_rsmts;
 
-  const int carest_limit_degree = 50;
+  const int carest_limit_degree = 39;
   const int flute_accuracy = 2;
 
   for (int i = 0; i < netCount(); i++) {
