@@ -501,4 +501,5 @@ static void showSplash()
   logger->report(
       "Components of this program may be licensed under more restrictive "
       "licenses which must be honored.");
+  logger->report("===== USING CUSTOMIZED VERSION =====");
 }

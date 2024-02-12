@@ -13,12 +13,7 @@
 // * Redistributions of source code must retain the above copyright notice, this
 //   list of conditions and the following disclaimer.
 //
-// * Redistributions in binary form must reproduce the above copyright notice,
-//   this list of conditions and the following disclaimer in the documentation
-//   and/or other materials provided with the distribution.
-//
-// * Neither the name of the copyright holder nor the names of its
-//   contributors may be used to endorse or promote products derived from
+// * Redistributions in binary form must reproduce the above copyright notice,e
 //   this software without specific prior written permission.
 //
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
@@ -150,7 +145,7 @@ class FastRouteCore
       const interval<int>::type& last_tile_reduce_interval);
   void initBlockedIntervals(std::vector<int>& track_space);
   void initAuxVar();
-  NetRouteMap run();
+  NetRouteMap run(bool call_from_main = false);
   int totalOverflow() const { return total_overflow_; }
   bool has2Doverflow() const { return has_2D_overflow_; }
   void updateDbCongestion();
@@ -390,8 +385,10 @@ class FastRouteCore
   void fixTreeFromFluteHelper(int node,
                               const std::vector<std::vector<int> >& graph,
                               Tree& rsmt);
+  void gen_brk_CAREST(int iterations);
   void gen_brk_FLUTE(const bool reRoute, 
                      const bool genTree);
+  void gen_brk_HYBRID(int iterations);
   void fluteNormal(const int netID,
                    const std::vector<int>& x,
                    const std::vector<int>& y,
@@ -423,6 +420,7 @@ class FastRouteCore
   void spiralRouteAll();
   void newrouteLInMaze(int netID);
   void estimateOneSeg(Segment* seg);
+  void undoEstimateOneSeg(Segment* seg);
   void routeSegV(Segment* seg);
   void routeSegH(Segment* seg);
   void routeSegLFirstTime(Segment* seg);
@@ -514,7 +512,11 @@ class FastRouteCore
                            FrNet* net,
                            bool is3DVisualization);
   int netCount() const { return nets_.size(); }
-
+  void writeRSMTInputFile(const char* filename, int limit_degree=-1);
+  std::vector<Tree> readRSMTOutputFile(const char* filename);
+  void readSummaryFile(const char* filename);
+  std::vector<Tree> runCAREST(int iterations, int limit_degree=-1);
+  
   typedef std::tuple<int, int, int> Tile;
 
   static const int BIG_INT = 1e9;  // big integer used as infinity

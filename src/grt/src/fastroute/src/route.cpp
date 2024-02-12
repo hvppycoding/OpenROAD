@@ -78,6 +78,35 @@ void FastRouteCore::estimateOneSeg(Segment* seg)
   }
 }
 
+void FastRouteCore::undoEstimateOneSeg(Segment* seg)
+{
+  const int edgeCost = nets_[seg->netID]->getEdgeCost();
+
+  const int ymin = std::min(seg->y1, seg->y2);
+  const int ymax = std::max(seg->y1, seg->y2);
+
+  // assign 0.5 to both Ls (x1,y1)-(x1,y2) + (x1,y2)-(x2,y2) + (x1,y1)-(x2,y1) +
+  // (x2,y1)-(x2,y2)
+  if (seg->x1 == seg->x2) {  // a vertical segment
+    for (int i = ymin; i < ymax; i++) {
+      v_edges_[i][seg->x1].est_usage -= edgeCost;
+    }
+  } else if (seg->y1 == seg->y2) {  // a horizontal segment
+    for (int i = seg->x1; i < seg->x2; i++) {
+      h_edges_[seg->y1][i].est_usage -= edgeCost;
+    }
+  } else {  // a diagonal segment
+    for (int i = ymin; i < ymax; i++) {
+      v_edges_[i][seg->x1].est_usage -= edgeCost / 2.0f;
+      v_edges_[i][seg->x2].est_usage -= edgeCost / 2.0f;
+    }
+    for (int i = seg->x1; i < seg->x2; i++) {
+      h_edges_[seg->y1][i].est_usage -= edgeCost / 2.0f;
+      h_edges_[seg->y2][i].est_usage -= edgeCost / 2.0f;
+    }
+  }
+}
+
 void FastRouteCore::routeSegV(Segment* seg)
 {
   const int edgeCost = nets_[seg->netID]->getEdgeCost();
