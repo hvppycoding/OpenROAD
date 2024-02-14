@@ -707,7 +707,46 @@ void GlobalRouter::findPins(Net* net,
   root_idx = 0;
   const int max_routing_layer = getNetMaxRoutingLayer(net);
 
+  logger_->report("===== Net {} =====", net->getName());
   for (Pin& pin : net->getPins()) {
+    logger_->report("= Pin {} =", pin.getName());
+    if (pin.isDriver()) {
+      logger_->report(" * Driver pin");
+    }
+    if (pin.isPort()) {
+      odb::dbBTerm* bTerm = pin.getBTerm();
+      sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(bTerm);
+      logger_->report(" * bTerm pin");
+      float min_slack = sta_->pinSlack(sta_pin, sta::MinMax::min());
+      float max_slack = sta_->pinSlack(sta_pin, sta::MinMax::max());
+      float rise_min_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::min());
+      float rise_max_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
+      float fall_min_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::min());
+      float fall_max_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+      logger_->report("  min_slack: {}", min_slack);
+      logger_->report("  max_slack: {}", max_slack);
+      // logger_->report("rise_min_slack: {}", rise_min_slack);
+      // logger_->report("rise_max_slack: {}", rise_max_slack);
+      // logger_->report("fall_min_slack: {}", fall_min_slack);
+      // logger_->report("fall_max_slack: {}", fall_max_slack);
+    } else {
+      odb::dbITerm* iTerm = pin.getITerm();
+      sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(iTerm);
+      logger_->report(" * iTerm pin");
+      float min_slack = sta_->pinSlack(sta_pin, sta::MinMax::min());
+      float max_slack = sta_->pinSlack(sta_pin, sta::MinMax::max());
+      float rise_min_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::min());
+      float rise_max_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
+      float fall_min_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::min());
+      float fall_max_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+      logger_->report("  min_slack: {}", min_slack);
+      logger_->report("  max_slack: {}", max_slack);
+      // logger_->report("rise_min_slack: {}", rise_min_slack);
+      // logger_->report("rise_max_slack: {}", rise_max_slack);
+      // logger_->report("fall_min_slack: {}", fall_min_slack);
+      // logger_->report("fall_max_slack: {}", fall_max_slack);
+    }
+
     odb::Point pin_position = pin.getOnGridPosition();
     int conn_layer = pin.getConnectionLayer();
     odb::dbTechLayer* layer = routing_layers_[conn_layer];
