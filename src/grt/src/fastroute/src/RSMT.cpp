@@ -909,8 +909,14 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     int d = net->getNumPins();
     if (d > carest_limit_degree) {
       Tree rsmt;
-      fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
-      rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+      const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
+      if (net_alpha > 0.0) {
+        rsmt = stt_builder_->makeSteinerTree(
+          net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx());
+      } else {
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+      }
       flute_rsmts.push_back(rsmt);
       for (int j = 0; j < rsmt.branchCount(); j++) {
         const int x1 = rsmt.branch[j].x;
@@ -1334,21 +1340,7 @@ void FastRouteCore::gen_brk_FLUTE(const bool reRoute,
       steinerTreeVisualization(rsmt, net);
     }
 
-    // logger_->report("Net {}", i);
-    // for (int k = 0; k < net->getNumPins(); k++) {
-    //   logger_->report("Pin {}: ({}, {})", k, net->getPinX()[k], net->getPinY()[k]);
-    // }
-    // logger_->report("Before Fix");
-    // for (int i = 0; i < rsmt.branchCount(); i++) {
-    //   logger_->report("Branch {}: ({}, {}) -> {}", i, rsmt.branch[i].x, rsmt.branch[i].y, rsmt.branch[i].n);
-    // }
-
     rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
-
-    // logger_->report("After Fix");
-    // for (int i = 0; i < rsmt.branchCount(); i++) {
-    //   logger_->report("Branch {}: ({}, {}) -> {}", i, rsmt.branch[i].x, rsmt.branch[i].y, rsmt.branch[i].n);
-    // }
 
     if (genTree) {
       copyStTree(i, rsmt);

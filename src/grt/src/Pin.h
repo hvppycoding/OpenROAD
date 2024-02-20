@@ -93,7 +93,7 @@ class Pin
   {
     on_grid_position_ = on_grid_pos;
   }
-  bool isDriver();
+  bool isDriver() const;
 
  private:
   void determineEdge(const odb::Rect& bounds,

@@ -43,6 +43,7 @@
 #include <utility>
 #include <vector>
 
+#include "DataType.h"
 #include "GRoute.h"
 #include "RoutePt.h"
 #include "ant/AntennaChecker.hh"
@@ -307,8 +308,12 @@ class GlobalRouter : public ant::GlobalRouteSource
                                               bool& has_access_points,
                                               odb::Point& pos_on_grid);
   int getNetMaxRoutingLayer(const Net* net);
+  FrPin makeFrPin(const Pin& pin, const RoutePt& pin_on_grid);
   void findPins(Net* net);
-  void findPins(Net* net, std::vector<RoutePt>& pins_on_grid, int& root_idx);
+  void findPins(Net* net, 
+                std::vector<RoutePt>& pins_on_grid, 
+                int& root_idx,
+                std::vector<FrPin>& fr_pins);
   float getNetSlack(Net* net);
   odb::dbTechLayer* getRoutingLayerByIndex(int index);
   RoutingTracks getRoutingTracksByIndex(int layer);

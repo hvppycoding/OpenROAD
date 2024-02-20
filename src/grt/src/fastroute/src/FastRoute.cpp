@@ -1568,11 +1568,12 @@ int FrNet::getLayerEdgeCost(int layer) const
     return 1;
 }
 
-void FrNet::addPin(int x, int y, int layer)
+void FrNet::addPin(int x, int y, int layer, FrPin frPin)
 {
   pin_x_.push_back(x);
   pin_y_.push_back(y);
   pin_l_.push_back(layer);
+  fr_pins_.push_back(frPin);
 }
 
 void FrNet::reset(odb::dbNet* db_net,
@@ -1597,6 +1598,7 @@ void FrNet::reset(odb::dbNet* db_net,
   pin_x_.clear();
   pin_y_.clear();
   pin_l_.clear();
+  fr_pins_.clear();
 }
 
 }  // namespace grt

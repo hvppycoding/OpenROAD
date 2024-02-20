@@ -700,62 +700,72 @@ int GlobalRouter::getNetMaxRoutingLayer(const Net* net)
              : max_routing_layer_;
 }
 
+FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid)
+{
+  float rise_slack, fall_slack, rise_arrival_time, fall_arrival_time;
+  int inst_id;
+  bool is_sequential;
+  std::string worst_path_name;
+  if (pin.isPort()) {
+    odb::dbBTerm* bTerm = pin.getBTerm();
+    inst_id = -1;
+    is_sequential = true;
+    sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(bTerm);
+    rise_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
+    fall_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+    rise_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
+    fall_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+  } else {
+    odb::dbITerm* iTerm = pin.getITerm();
+    inst_id = pin.getITerm()->getInst()->getId();
+    is_sequential = pin.getITerm()->getInst()->getMaster()->isSequential();
+    sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(iTerm);
+    rise_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
+    fall_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+    rise_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
+    fall_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+  }
+  logger_->report(
+    "Pin {}{}\n Inst: {}{}\n rise slack: {}\n fall slack: {}\n rise AT: {}\n fall AT: {}",
+     pin.getName(),
+     pin.isDriver() ? "***" : "",
+     inst_id,
+     is_sequential ? " (sequential)" : "",
+     rise_slack,
+     fall_slack,
+     rise_arrival_time,
+     fall_arrival_time);
+
+  float slack = std::min(rise_slack, fall_slack);
+  float arrival_time = std::max(rise_arrival_time, fall_arrival_time);
+
+  return FrPin(pin_on_grid.x(),
+                pin_on_grid.y(),
+                pin_on_grid.layer(),
+                arrival_time,
+                slack,
+                pin.isDriver(),
+                inst_id,
+                is_sequential);
+}
+
 void GlobalRouter::findPins(Net* net,
                             std::vector<RoutePt>& pins_on_grid,
-                            int& root_idx)
+                            int& root_idx,
+                            std::vector<FrPin>& fr_pins)
 {
   root_idx = 0;
   const int max_routing_layer = getNetMaxRoutingLayer(net);
 
-  logger_->report("===== Net {} =====", net->getName());
+  uint net_id = net->getDbNet()->getId();
+  logger_->report("===== Net {} ({}) id: {}=====", net->getName(), net->getDbNet()->getSigType().getString(), net_id);
+  
+  if (net->getDbNet()->getSigType() != odb::dbSigType::CLOCK
+   && net->getDbNet()->getSigType() != odb::dbSigType::SIGNAL) {
+    logger_->error(GRT, 996, "Net {} has an unsupported signal type: {}", net->getName(), net->getDbNet()->getSigType().getString());
+  }
+  
   for (Pin& pin : net->getPins()) {
-    if (pin.isDriver()) {
-      logger_->report("= Pin {} = *Driver", pin.getName());
-    } else {
-      logger_->report("= Pin {} =", pin.getName());
-    }
-    odb::Point _pin_pos = pin.getOnGridPosition();
-    logger_->report("  Position: ({}, {})", _pin_pos.x(), _pin_pos.y());
-    
-    if (pin.isPort()) {
-      odb::dbBTerm* bTerm = pin.getBTerm();
-      sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(bTerm);
-      // logger_->report(" * bTerm pin");
-      // sta::MinMax::max(): setup slack
-      // sta::MinMax::min(): hold slack
-      float max_rise_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
-      float max_fall_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
-      float max_arrival_rise = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
-      float max_arrival_fall = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
-
-      // float min_arrival_rise = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::min());
-      // float min_arrival_fall = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::min());
-
-      logger_->report("  slack(rise): {}", max_rise_slack);
-      logger_->report("  slack(fall): {}", max_fall_slack);
-      logger_->report("  arrival_max(rise): {}", max_arrival_rise);
-      logger_->report("  arrival_max(fall): {}", max_arrival_fall);
-      // logger_->report("  arrival_min(rise): {}", min_arrival_rise);
-      // logger_->report("  arrival_min(fall): {}", min_arrival_fall);
-    } else {
-      odb::dbITerm* iTerm = pin.getITerm();
-      sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(iTerm);
-      // logger_->report(" * iTerm pin");
-      float max_rise_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
-      float max_fall_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
-      float max_arrival_rise = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
-      float max_arrival_fall = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
-      float min_arrival_rise = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::min());
-      float min_arrival_fall = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::min());
-
-      logger_->report("  slack(rise): {}", max_rise_slack);
-      logger_->report("  slack(fall): {}", max_fall_slack);
-      logger_->report("  arrival_max(rise): {}", max_arrival_rise);
-      logger_->report("  arrival_max(fall): {}", max_arrival_fall);
-      // logger_->report("  arrival_min(rise): {}", min_arrival_rise);
-      // logger_->report("  arrival_min(fall): {}", min_arrival_fall);
-    }
-
     odb::Point pin_position = pin.getOnGridPosition();
     int conn_layer = pin.getConnectionLayer();
     odb::dbTechLayer* layer = routing_layers_[conn_layer];
@@ -776,22 +786,43 @@ void GlobalRouter::findPins(Net* net,
     if (!(pinX < 0 || pinX >= grid_->getXGrids() || pinY < -1
           || pinY >= grid_->getYGrids() || conn_layer > grid_->getNumLayers()
           || conn_layer <= 0)) {
-      bool invalid = false;
-      for (RoutePt& pin_pos : pins_on_grid) {
+      int same_pos_index = -1;
+      for (int i = 0; pins_on_grid.size(); i++) {
+        RoutePt& pin_pos = pins_on_grid[i];
         if (pinX == pin_pos.x() && pinY == pin_pos.y()
             && conn_layer == pin_pos.layer()) {
-          invalid = true;
+          same_pos_index = i;
           break;
         }
       }
 
-      if (!invalid) {
+      FrPin frPin = makeFrPin(pin, RoutePt(pinX, pinY, conn_layer));
+
+      if (same_pos_index == -1) {
+        // Same position not found, add new pin
         pins_on_grid.push_back(RoutePt(pinX, pinY, conn_layer));
+        fr_pins.push_back(frPin);
+
         if (pin.isDriver()) {
           root_idx = pins_on_grid.size() - 1;
         }
+      } else {
+        if (pin.isDriver()) {
+          root_idx = same_pos_index;
+          fr_pins[same_pos_index] = frPin;
+        }
+        if (fr_pins[same_pos_index].isDriver()) {
+          continue;
+        }
+        if (fr_pins[same_pos_index].slack() > frPin.slack()) {
+          fr_pins[same_pos_index] = frPin;
+        }
       }
     }
+  }
+
+  if (pins_on_grid.size() != fr_pins.size()) {
+    logger_->error(GRT, 997, "Number of pins and frPins are different.");
   }
 }
 
@@ -873,8 +904,9 @@ bool GlobalRouter::checkPinPositions(Net* net,
 bool GlobalRouter::makeFastrouteNet(Net* net)
 {
   std::vector<RoutePt> pins_on_grid;
+  std::vector<FrPin> frPins;
   int root_idx;
-  findPins(net, pins_on_grid, root_idx);
+  findPins(net, pins_on_grid, root_idx, frPins);
 
   if (pins_on_grid.size() <= 1) {
     return false;
@@ -917,8 +949,10 @@ bool GlobalRouter::makeFastrouteNet(Net* net)
     // https://github.com/The-OpenROAD-Project/OpenROAD/discussions/2870
     // for a detailed discussion
 
-    for (RoutePt& pin_pos : pins_on_grid) {
-      fr_net->addPin(pin_pos.x(), pin_pos.y(), pin_pos.layer() - 1);
+    for (int i = 0; i < pins_on_grid.size(); i++) {
+      RoutePt& pin_pos = pins_on_grid[i];
+      FrPin frPin = frPins[i];
+      fr_net->addPin(pin_pos.x(), pin_pos.y(), pin_pos.layer() - 1, frPin);
     }
 
     // Save stt input on debug file

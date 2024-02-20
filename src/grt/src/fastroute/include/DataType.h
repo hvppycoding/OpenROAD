@@ -84,6 +84,46 @@ struct Segment  // A Segment is a 2-pin connection
   short Zpoint;          // The coordinates of Z point (x for HVH and y for VHV)
 };
 
+struct FrPin
+{
+  FrPin(int x, 
+        int y, 
+        int layer, 
+        float slack, 
+        float arrival_time, 
+        bool is_driver, 
+        int inst_id, 
+        bool is_sequential)
+      : x_(x),
+        y_(y),
+        layer_(layer),
+        slack_(slack),
+        arrival_time_(arrival_time),
+        is_driver_(is_driver),
+        inst_id_(inst_id),
+        is_sequential_(is_sequential)
+  {
+  }
+
+  int x() const { return x_; }
+  int y() const { return y_; }
+  int layer() const { return layer_; }
+  float slack() const { return slack_; }
+  float arrivalTime() const { return arrival_time_; }
+  bool isDriver() const { return is_driver_; }
+  int instId() const { return inst_id_; }
+  bool isSequential() const { return is_sequential_; }
+
+  int x_;
+  int y_;
+  int layer_;
+  float slack_;
+  float arrival_time_;
+  bool is_driver_;
+  int inst_id_;
+  bool is_sequential_;
+};
+
 struct FrNet  // A Net is a set of connected MazePoints
 {
   bool isClock() const { return is_clock_; }
@@ -102,11 +142,13 @@ struct FrNet  // A Net is a set of connected MazePoints
   int getPinX(int idx) const { return pin_x_[idx]; }
   int getPinY(int idx) const { return pin_y_[idx]; }
   int getPinL(int idx) const { return pin_l_[idx]; }
+  FrPin getFrPin(int idx) const { return fr_pins_[idx]; }
   const std::vector<int>& getPinX() const { return pin_x_; }
   const std::vector<int>& getPinY() const { return pin_y_; }
   const std::vector<int>& getPinL() const { return pin_l_; }
+  const std::vector<FrPin>& getFrPin() const { return fr_pins_; }
 
-  void addPin(int x, int y, int layer);
+  void addPin(int x, int y, int layer, FrPin frPin);
   void reset(odb::dbNet* db_net,
              bool is_clock,
              int driver_idx,
@@ -126,6 +168,7 @@ struct FrNet  // A Net is a set of connected MazePoints
   std::vector<int> pin_x_;  // x coordinates of pins
   std::vector<int> pin_y_;  // y coordinates of pins
   std::vector<int> pin_l_;  // l coordinates of pins
+  std::vector<FrPin> fr_pins_; // slack of pins
   bool is_clock_;           // flag that indicates if net is a clock net
   bool is_critical_;
   int driver_idx_;

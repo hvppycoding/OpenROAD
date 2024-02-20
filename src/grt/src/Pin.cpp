@@ -179,7 +179,7 @@ std::string Pin::getName() const
     return getITermName(iterm_);
 }
 
-bool Pin::isDriver()
+bool Pin::isDriver() const
 {
   if (is_port_) {
     return (bterm_->getIoType() == odb::dbIoType::INPUT);
