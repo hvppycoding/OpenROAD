@@ -391,6 +391,7 @@ class FastRouteCore
   void gen_brk_FLUTE(const bool reRoute, 
                      const bool genTree);
   void gen_brk_HYBRID(int iterations);
+  void gen_brk_TD();
   void fluteNormal(const int netID,
                    const std::vector<int>& x,
                    const std::vector<int>& y,
@@ -520,10 +521,11 @@ class FastRouteCore
                            FrNet* net,
                            bool is3DVisualization);
   int netCount() const { return nets_.size(); }
-  void writeRSMTInputFile(const char* filename, int limit_degree=-1);
+  void writeTDInputFile(const char* filename);
+  void writeRSMTInputFile(const char* filename, std::function<bool(FrNet*)> run_checker);
   std::vector<Tree> readRSMTOutputFile(const char* filename);
   void readSummaryFile(const char* filename);
-  std::vector<Tree> runCAREST(int iterations, int limit_degree=-1);
+  std::vector<Tree> runCAREST(int iterations, std::function<bool(FrNet*)> run_checker);
   
   typedef std::tuple<int, int, int> Tile;
 

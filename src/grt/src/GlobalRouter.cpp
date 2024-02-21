@@ -787,7 +787,7 @@ void GlobalRouter::findPins(Net* net,
           || pinY >= grid_->getYGrids() || conn_layer > grid_->getNumLayers()
           || conn_layer <= 0)) {
       int same_pos_index = -1;
-      for (int i = 0; pins_on_grid.size(); i++) {
+      for (int i = 0; i < pins_on_grid.size(); i++) {
         RoutePt& pin_pos = pins_on_grid[i];
         if (pinX == pin_pos.x() && pinY == pin_pos.y()
             && conn_layer == pin_pos.layer()) {

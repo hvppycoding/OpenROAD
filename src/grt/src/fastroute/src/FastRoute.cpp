@@ -937,6 +937,7 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   const int MY_ALGORITHM = 3;
   const int HYBRID_ALGORITHM = 4;
   const int HYBRID_REST_ALGORITHM = 5;
+  const int TIMING_DRIVEN_ALGORITHM = 6;
 
   int algorithm;
   if (env_var == nullptr) {
@@ -968,6 +969,8 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   } else if (algorithm == HYBRID_REST_ALGORITHM) {
     logger_->report("Jayoung: HYBRID_REST_ALGORITHM");
     gen_brk_HYBRID(0);
+  } else if (algorithm == TIMING_DRIVEN_ALGORITHM) {
+    gen_brk_TD();
   } else {
     // Default
     logger_->report("Jayoung: DEFAULT_ALGORITHM");

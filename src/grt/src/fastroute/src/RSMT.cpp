@@ -826,7 +826,14 @@ void FastRouteCore::gen_brk_CAREST(int iterations)
 {
   char command[1024];
   logger_->report("===== FastRouteCore::gen_brk_CAREST =====");
-  std::vector<Tree> rsmt_trees = runCAREST(iterations);
+  auto runChecker = [=](FrNet* net) {
+    if (net->getNumPins() > 2) {
+      return true;
+    } else {
+      return false;
+    } 
+  };
+  std::vector<Tree> rsmt_trees = runCAREST(iterations, runChecker);
 
   logger_->report("Net count: {}", netCount());
   logger_->report("RSMT trees count: {}", rsmt_trees.size());
@@ -898,6 +905,14 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
   const int carest_limit_degree = 39;
   const int flute_accuracy = 2;
 
+  auto isOriginalAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() > carest_limit_degree || net->isClock();
+  };
+
+  auto isNewAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() <= carest_limit_degree && !net->isClock();
+  };
+
   for (int i = 0; i < netCount(); i++) {
     if (skipNet(i)) {
       continue;
@@ -907,7 +922,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
 
     FrNet* net = nets_[i];
     int d = net->getNumPins();
-    if (d > carest_limit_degree) {
+    if (isOriginalAlgorithmRequired(net)) {
       Tree rsmt;
       const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
       if (net_alpha > 0.0) {
@@ -982,7 +997,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
   }
   // ===== FLUTE LROUTE END =====
 
-  std::vector<Tree> carest_rsmts = runCAREST(iterations, carest_limit_degree);
+  std::vector<Tree> carest_rsmts = runCAREST(iterations, isNewAlgorithmRequired);
 
   // ===== RIPUP FLUTE LROUTE BEGIN =====
   for (int i = 0; i < netCount(); i++) {
@@ -1009,7 +1024,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     int d = net->getNumPins();
 
     Tree rsmt;
-    if (d > carest_limit_degree) {
+    if (isOriginalAlgorithmRequired(net)) {
       rsmt = flute_rsmts[flute_index++];
     } else {
       rsmt = carest_rsmts[carest_index++];
@@ -1059,7 +1074,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
       ripupSegL(&seg);
     }
 
-    if (d > carest_limit_degree) {
+    if (isOriginalAlgorithmRequired(net)) {
       Tree rsmt = flute_rsmts[flute_index++];
       copyStTree(i, rsmt);
     } else {
@@ -1074,7 +1089,227 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
   }
 }
 
-void FastRouteCore::writeRSMTInputFile(const char* filename, int limit_degree)
+
+void FastRouteCore::gen_brk_TD()
+{
+  logger_->report("===== gen_brk_TD =====");
+  
+  int numShift = 0;
+
+  int totalNumSeg = 0;
+
+  std::vector<Tree> flute_rsmts;
+
+  const int carest_limit_degree = 39;
+  const int flute_accuracy = 2;
+
+  auto isOriginalAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() > carest_limit_degree || net->isClock();
+  };
+
+  auto isNewAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() <= carest_limit_degree && !net->isClock();
+  };
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    float coeffV = 1.0;
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+    if (isOriginalAlgorithmRequired(net)) {
+      Tree rsmt;
+      const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
+      if (net_alpha > 0.0) {
+        rsmt = stt_builder_->makeSteinerTree(
+          net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx());
+      } else {
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+      }
+      flute_rsmts.push_back(rsmt);
+      for (int j = 0; j < rsmt.branchCount(); j++) {
+        const int x1 = rsmt.branch[j].x;
+        const int y1 = rsmt.branch[j].y;
+        const int n = rsmt.branch[j].n;
+        const int x2 = rsmt.branch[n].x;
+        const int y2 = rsmt.branch[n].y;
+
+        if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+          // the position of this segment in seglist
+          seglist_[i].push_back(Segment());
+          auto& seg = seglist_[i].back();
+          if (x1 < x2) {
+            seg.x1 = x1;
+            seg.x2 = x2;
+            seg.y1 = y1;
+            seg.y2 = y2;
+          } else {
+            seg.x1 = x2;
+            seg.x2 = x1;
+            seg.y1 = y2;
+            seg.y2 = y1;
+          }
+
+          seg.netID = i;
+        }
+      }  // loop j
+    }
+  }
+
+  // ===== FLUTE LROUTE BEGIN =====
+  // estimate congestion with 0.5+0.5 L
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (d > carest_limit_degree) {
+      for (auto& seg : seglist_[i]) {
+        estimateOneSeg(&seg);
+      }
+    }
+  }
+  // L route
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (isOriginalAlgorithmRequired(net)) {
+      for (auto& seg : seglist_[i]) {
+      // no need to reroute the H or V segs
+        if (seg.x1 != seg.x2 || seg.y1 != seg.y2)
+          routeSegLFirstTime(&seg);
+      }
+    }
+  }
+  // ===== FLUTE LROUTE END =====
+
+  std::vector<Tree> carest_rsmts = runCAREST(1, isNewAlgorithmRequired);
+
+  // ===== RIPUP FLUTE LROUTE BEGIN =====
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+    seglist_[i].clear();
+  }
+  // ===== RIPUP FLUTE LROUTE END =====
+
+  int carest_index = 0;
+  int flute_index = 0;
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    Tree rsmt;
+    if (isOriginalAlgorithmRequired(net)) {
+      rsmt = flute_rsmts[flute_index++];
+    } else {
+      rsmt = carest_rsmts[carest_index++];
+    }
+
+    for (int j = 0; j < rsmt.branchCount(); j++) {
+      const int x1 = rsmt.branch[j].x;
+      const int y1 = rsmt.branch[j].y;
+      const int n = rsmt.branch[j].n;
+      const int x2 = rsmt.branch[n].x;
+      const int y2 = rsmt.branch[n].y;
+
+      if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+        // the position of this segment in seglist
+        seglist_[i].push_back(Segment());
+        auto& seg = seglist_[i].back();
+        if (x1 < x2) {
+          seg.x1 = x1;
+          seg.x2 = x2;
+          seg.y1 = y1;
+          seg.y2 = y2;
+        } else {
+          seg.x1 = x2;
+          seg.x2 = x1;
+          seg.y1 = y2;
+          seg.y2 = y1;
+        }
+
+        seg.netID = i;
+      }
+    }  // loop j
+  }
+
+  routeLAll(true);
+
+  carest_index = 0;
+  flute_index = 0;
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+
+    if (isOriginalAlgorithmRequired(net)) {
+      Tree rsmt = flute_rsmts[flute_index++];
+      copyStTree(i, rsmt);
+    } else {
+      Tree rsmt = carest_rsmts[carest_index++];
+      copyStTree(i, rsmt);
+    }
+    
+    newrouteL(
+        i,
+        RouteType::NoRoute,
+        true);  // route the net with no previous route for each tree edge
+  }
+}
+
+void FastRouteCore::writeTDInputFile(const char* filename) 
+{
+  std::ofstream out(filename);
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+    FrNet* net = nets_[i];
+    // if (runChecker(net)) {
+      out << "NET " << i << ' ' << net->getNumPins() 
+          << " DRV " << net->getDriverIdx() << '\n';
+      for (int j = 0; j < net->getNumPins(); j++) {
+        FrPin p = net->getFrPin(j);
+        out << net->getPinX(j) << " " << net->getPinY(j) 
+        << p.arrivalTime() << p.isSequential() << p.isDriver()
+        << p.instId() << p.isSequential();
+      }
+    // }
+  }
+}
+
+void FastRouteCore::writeRSMTInputFile(const char* filename, std::function<bool(FrNet*)> runChecker)
 {
   std::ofstream out(filename);
   
@@ -1103,13 +1338,12 @@ void FastRouteCore::writeRSMTInputFile(const char* filename, int limit_degree)
       continue;
     }
     FrNet* net = nets_[i];
-    if (limit_degree != -1 && net->getNumPins() > limit_degree) {
-      continue;
-    }
-    out << "NET " << i << ' ' << net->getNumPins() 
-        << " DRV " << net->getDriverIdx() << '\n';
-    for (int j = 0; j < net->getNumPins(); j++) {
-      out << net->getPinX(j) << " " << net->getPinY(j) << '\n';
+    if (runChecker(net)) {
+      out << "NET " << i << ' ' << net->getNumPins() 
+          << " DRV " << net->getDriverIdx() << '\n';
+      for (int j = 0; j < net->getNumPins(); j++) {
+        out << net->getPinX(j) << " " << net->getPinY(j) << '\n';
+      }
     }
   }
 }
@@ -1156,17 +1390,20 @@ std::vector<Tree> FastRouteCore::readRSMTOutputFile(const char* filename)
     return rsmt_trees;
 }
 
-std::vector<Tree> FastRouteCore::runCAREST(int iterations, int limit_degree)
+std::vector<Tree> FastRouteCore::runCAREST(int iterations, std::function<bool(FrNet*)> runChecker)
 {
   char command[1024];
-  std::string temp_dir = "_temp";
+  std::string results_dir = getenv("RESULTS_DIR");
+  std::string temp_dir = results_dir + "/5_1_temp";
 
   sprintf(command, "mkdir -p %s", temp_dir.c_str());
   system(command);
 
+  writeTDInputFile((temp_dir + "/td_input.txt").c_str());
+
   std::string current_time = getCurrentTimeString();
   std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
-  writeRSMTInputFile(rsmt_input_file.c_str(), limit_degree);
+  writeRSMTInputFile(rsmt_input_file.c_str(), runChecker);
   logger_->report("RSMT input file written to {}", rsmt_input_file);
   std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
 
