@@ -705,11 +705,16 @@ FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid)
   float rise_slack, fall_slack, rise_arrival_time, fall_arrival_time;
   int inst_id;
   bool is_sequential;
-  std::string worst_path_name;
+  uint pin_id;
+  std::string pin_name;
+  std::string inst_name;
   if (pin.isPort()) {
     odb::dbBTerm* bTerm = pin.getBTerm();
     inst_id = -1;
+    pin_id = pin.getBTerm()->getId();
     is_sequential = true;
+    pin_name = bTerm->getName();
+    inst_name = "PORT";
     sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(bTerm);
     rise_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
     fall_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
@@ -717,9 +722,12 @@ FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid)
     fall_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
   } else {
     odb::dbITerm* iTerm = pin.getITerm();
+    pin_id = pin.getITerm()->getId();
     inst_id = pin.getITerm()->getInst()->getId();
     is_sequential = pin.getITerm()->getInst()->getMaster()->isSequential();
     sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(iTerm);
+    pin_name = iTerm->getMTerm()->getName();
+    inst_name = iTerm->getInst()->getName();
     rise_slack = sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
     fall_slack = sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
     rise_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
@@ -739,14 +747,17 @@ FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid)
   float slack = std::min(rise_slack, fall_slack);
   float arrival_time = std::max(rise_arrival_time, fall_arrival_time);
 
-  return FrPin(pin_on_grid.x(),
+  return FrPin( pin_id, 
+                pin_on_grid.x(),
                 pin_on_grid.y(),
                 pin_on_grid.layer(),
                 arrival_time,
                 slack,
                 pin.isDriver(),
                 inst_id,
-                is_sequential);
+                is_sequential,
+                pin_name,
+                inst_name);
 }
 
 void GlobalRouter::findPins(Net* net,

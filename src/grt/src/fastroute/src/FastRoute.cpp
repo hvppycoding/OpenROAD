@@ -970,6 +970,7 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
     logger_->report("Jayoung: HYBRID_REST_ALGORITHM");
     gen_brk_HYBRID(0);
   } else if (algorithm == TIMING_DRIVEN_ALGORITHM) {
+    logger_->report("Jayoung: TIMING_DRIVEN_ALGORITHM");
     gen_brk_TD();
   } else {
     // Default

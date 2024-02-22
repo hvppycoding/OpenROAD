@@ -902,7 +902,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
 
   std::vector<Tree> flute_rsmts;
 
-  const int carest_limit_degree = 39;
+  const int carest_limit_degree = 50;
   const int flute_accuracy = 2;
 
   auto isOriginalAlgorithmRequired = [&](FrNet* net) {
@@ -972,7 +972,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     FrNet* net = nets_[i];
     int d = net->getNumPins();
 
-    if (d > carest_limit_degree) {
+    if (isOriginalAlgorithmRequired(net)) {
       for (auto& seg : seglist_[i]) {
         estimateOneSeg(&seg);
       }
@@ -987,7 +987,7 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
     FrNet* net = nets_[i];
     int d = net->getNumPins();
 
-    if (d > carest_limit_degree) {
+    if (isOriginalAlgorithmRequired(net)) {
       for (auto& seg : seglist_[i]) {
       // no need to reroute the H or V segs
         if (seg.x1 != seg.x2 || seg.y1 != seg.y2)
@@ -1095,12 +1095,11 @@ void FastRouteCore::gen_brk_TD()
   logger_->report("===== gen_brk_TD =====");
   
   int numShift = 0;
-
   int totalNumSeg = 0;
 
   std::vector<Tree> flute_rsmts;
 
-  const int carest_limit_degree = 39;
+  const int carest_limit_degree = 50;
   const int flute_accuracy = 2;
 
   auto isOriginalAlgorithmRequired = [&](FrNet* net) {
@@ -1170,7 +1169,7 @@ void FastRouteCore::gen_brk_TD()
     FrNet* net = nets_[i];
     int d = net->getNumPins();
 
-    if (d > carest_limit_degree) {
+    if (isOriginalAlgorithmRequired(net)) {
       for (auto& seg : seglist_[i]) {
         estimateOneSeg(&seg);
       }
@@ -1195,7 +1194,7 @@ void FastRouteCore::gen_brk_TD()
   }
   // ===== FLUTE LROUTE END =====
 
-  std::vector<Tree> carest_rsmts = runCAREST(1, isNewAlgorithmRequired);
+  std::vector<Tree> carest_rsmts = runTD(isNewAlgorithmRequired);
 
   // ===== RIPUP FLUTE LROUTE BEGIN =====
   for (int i = 0; i < netCount(); i++) {
@@ -1287,25 +1286,52 @@ void FastRouteCore::gen_brk_TD()
   }
 }
 
-void FastRouteCore::writeTDInputFile(const char* filename) 
+void FastRouteCore::writeTDInputFile(const char* filename, std::function<bool(FrNet*)> runChecker)
 {
   std::ofstream out(filename);
+    
+  if (!out) {
+    logger_->error(GRT, 900, "Cannot open file {}.", filename);
+  }
+
+  out << "HCAP " << h_edges_.size() << ' ' << h_edges_[0].size() << '\n';
+  for (int y = 0; y < h_edges_.size(); y++) {
+    for (int x = 0; x < h_edges_[y].size(); x++) {
+      out << std::max(h_edges_[y][x].est_cap(), 0) << ' ';
+    }
+    out << '\n';
+  }
+
+  out << "VCAP " << v_edges_.size() << ' ' << v_edges_[0].size() << '\n';
+  for (int y = 0; y < v_edges_.size(); y++) {
+    for (int x = 0; x < v_edges_[y].size(); x++) {
+      out << std::max(v_edges_[y][x].est_cap(), 0) << ' ';
+    }
+    out << '\n';
+  }
 
   for (int i = 0; i < netCount(); i++) {
     if (skipNet(i)) {
       continue;
     }
     FrNet* net = nets_[i];
-    // if (runChecker(net)) {
-      out << "NET " << i << ' ' << net->getNumPins() 
+    if (runChecker(net)) {
+      out << "NET " << i << " PIN " << net->getNumPins() 
           << " DRV " << net->getDriverIdx() << '\n';
       for (int j = 0; j < net->getNumPins(); j++) {
         FrPin p = net->getFrPin(j);
-        out << net->getPinX(j) << " " << net->getPinY(j) 
-        << p.arrivalTime() << p.isSequential() << p.isDriver()
-        << p.instId() << p.isSequential();
+        out << p.pinId() << " "
+            << p.x() << " " 
+            << p.y() << " "
+            << p.isDriver() << " "
+            << p.slack() << " "
+            << p.arrivalTime() << " "
+            << p.instId() << " "
+            << p.isSequential() << " "
+            << p.pinName() << " "
+            << p.instName() << '\n';
       }
-    // }
+    }
   }
 }
 
@@ -1320,7 +1346,7 @@ void FastRouteCore::writeRSMTInputFile(const char* filename, std::function<bool(
   out << "HCAP " << h_edges_.size() << ' ' << h_edges_[0].size() << '\n';
   for (int y = 0; y < h_edges_.size(); y++) {
     for (int x = 0; x < h_edges_[y].size(); x++) {
-      out << std::max(h_edges_[y][x].cap - int(h_edges_[y][x].est_usage), 0) << ' ';
+      out << std::max(h_edges_[y][x].est_cap(), 0) << ' ';
     }
     out << '\n';
   }
@@ -1328,7 +1354,7 @@ void FastRouteCore::writeRSMTInputFile(const char* filename, std::function<bool(
   out << "VCAP " << v_edges_.size() << ' ' << v_edges_[0].size() << '\n';
   for (int y = 0; y < v_edges_.size(); y++) {
     for (int x = 0; x < v_edges_[y].size(); x++) {
-      out << std::max(v_edges_[y][x].cap - int(v_edges_[y][x].est_usage), 0) << ' ';
+      out << std::max(v_edges_[y][x].est_cap(), 0) << ' ';
     }
     out << '\n';
   }
@@ -1399,9 +1425,11 @@ std::vector<Tree> FastRouteCore::runCAREST(int iterations, std::function<bool(Fr
   sprintf(command, "mkdir -p %s", temp_dir.c_str());
   system(command);
 
-  writeTDInputFile((temp_dir + "/td_input.txt").c_str());
-
   std::string current_time = getCurrentTimeString();
+  std::string td_input_file = temp_dir + "/td_input_" + current_time + ".txt";
+  writeTDInputFile(td_input_file.c_str(), runChecker);
+  logger_->report("TD input file written to {}", td_input_file);
+
   std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
   writeRSMTInputFile(rsmt_input_file.c_str(), runChecker);
   logger_->report("RSMT input file written to {}", rsmt_input_file);
@@ -1423,6 +1451,40 @@ std::vector<Tree> FastRouteCore::runCAREST(int iterations, std::function<bool(Fr
   if (env_wof != nullptr) {
     command_str += " --weight_overflow " + std::string(env_wof);
   }
+  system(command_str.c_str());
+
+  logger_->report("jayoung-command: {}", command_str);
+
+  std::string summary_file = rsmt_output_directory + "/summary.txt";
+  readSummaryFile(summary_file.c_str());
+
+  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
+  return readRSMTOutputFile(final_st_trees_file.c_str());
+}
+
+
+std::vector<Tree> FastRouteCore::runTD(std::function<bool(FrNet*)> runChecker)
+{
+  char command[1024];
+  std::string results_dir = getenv("RESULTS_DIR");
+  std::string temp_dir = results_dir + "/5_1_temp";
+
+  sprintf(command, "mkdir -p %s", temp_dir.c_str());
+  system(command);
+
+  std::string current_time = getCurrentTimeString();
+  std::string td_input_file = temp_dir + "/td_input_" + current_time + ".txt";
+  writeTDInputFile(td_input_file.c_str(), runChecker);
+  logger_->report("TD input file written to {}", td_input_file);
+
+  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
+  writeRSMTInputFile(rsmt_input_file.c_str(), runChecker);
+  logger_->report("RSMT input file written to {}", rsmt_input_file);
+  std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
+
+  std::string command_str = "carest_td";
+  command_str += " --td_input_file " + td_input_file;
+  command_str += " --outdir " + rsmt_output_directory;
   system(command_str.c_str());
 
   logger_->report("jayoung-command: {}", command_str);

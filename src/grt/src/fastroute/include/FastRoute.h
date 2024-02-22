@@ -521,11 +521,12 @@ class FastRouteCore
                            FrNet* net,
                            bool is3DVisualization);
   int netCount() const { return nets_.size(); }
-  void writeTDInputFile(const char* filename);
+  void writeTDInputFile(const char* filename, std::function<bool(FrNet*)> run_checker);
   void writeRSMTInputFile(const char* filename, std::function<bool(FrNet*)> run_checker);
   std::vector<Tree> readRSMTOutputFile(const char* filename);
   void readSummaryFile(const char* filename);
   std::vector<Tree> runCAREST(int iterations, std::function<bool(FrNet*)> run_checker);
+  std::vector<Tree> runTD(std::function<bool(FrNet*)> run_checker);
   
   typedef std::tuple<int, int, int> Tile;
 
