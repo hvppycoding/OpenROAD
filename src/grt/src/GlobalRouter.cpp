@@ -733,16 +733,16 @@ FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid)
     rise_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
     fall_arrival_time = sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
   }
-  logger_->report(
-    "Pin {}{}\n Inst: {}{}\n rise slack: {}\n fall slack: {}\n rise AT: {}\n fall AT: {}",
-     pin.getName(),
-     pin.isDriver() ? "***" : "",
-     inst_id,
-     is_sequential ? " (sequential)" : "",
-     rise_slack,
-     fall_slack,
-     rise_arrival_time,
-     fall_arrival_time);
+  // logger_->report(
+  //   "Pin {}{}\n Inst: {}{}\n rise slack: {}\n fall slack: {}\n rise AT: {}\n fall AT: {}",
+  //    pin.getName(),
+  //    pin.isDriver() ? "***" : "",
+  //    inst_id,
+  //    is_sequential ? " (sequential)" : "",
+  //    rise_slack,
+  //    fall_slack,
+  //    rise_arrival_time,
+  //    fall_arrival_time);
 
   float slack = std::min(rise_slack, fall_slack);
   float arrival_time = std::max(rise_arrival_time, fall_arrival_time);
@@ -769,7 +769,7 @@ void GlobalRouter::findPins(Net* net,
   const int max_routing_layer = getNetMaxRoutingLayer(net);
 
   uint net_id = net->getDbNet()->getId();
-  logger_->report("===== Net {} ({}) id: {}=====", net->getName(), net->getDbNet()->getSigType().getString(), net_id);
+  // logger_->report("===== Net {} ({}) id: {}=====", net->getName(), net->getDbNet()->getSigType().getString(), net_id);
   
   if (net->getDbNet()->getSigType() != odb::dbSigType::CLOCK
    && net->getDbNet()->getSigType() != odb::dbSigType::SIGNAL) {

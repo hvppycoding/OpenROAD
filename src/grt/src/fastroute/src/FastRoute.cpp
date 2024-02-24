@@ -938,6 +938,7 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   const int HYBRID_ALGORITHM = 4;
   const int HYBRID_REST_ALGORITHM = 5;
   const int TIMING_DRIVEN_ALGORITHM = 6;
+  const int ALLREST_ALGORITHM = 7;
 
   int algorithm;
   if (env_var == nullptr) {
@@ -972,6 +973,9 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   } else if (algorithm == TIMING_DRIVEN_ALGORITHM) {
     logger_->report("Jayoung: TIMING_DRIVEN_ALGORITHM");
     gen_brk_TD();
+  } else if (algorithm == ALLREST_ALGORITHM) {
+    logger_->report("Jayoung: ALLREST_ALGORITHM");
+    gen_brk_ALL();
   } else {
     // Default
     logger_->report("Jayoung: DEFAULT_ALGORITHM");

@@ -1286,6 +1286,202 @@ void FastRouteCore::gen_brk_TD()
   }
 }
 
+void FastRouteCore::gen_brk_ALL()
+{
+  logger_->report("===== gen_brk_ALL =====");
+  
+  int numShift = 0;
+  int totalNumSeg = 0;
+
+  std::vector<Tree> flute_rsmts;
+
+  const int carest_limit_degree = 50;
+  const int flute_accuracy = 2;
+
+  auto isOriginalAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() > carest_limit_degree || net->isClock();
+  };
+
+  auto isNewAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() <= carest_limit_degree && !net->isClock();
+  };
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    float coeffV = 1.0;
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+    if (isOriginalAlgorithmRequired(net)) {
+      Tree rsmt;
+      const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
+      if (net_alpha > 0.0) {
+        rsmt = stt_builder_->makeSteinerTree(
+          net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx());
+      } else {
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+      }
+      flute_rsmts.push_back(rsmt);
+      for (int j = 0; j < rsmt.branchCount(); j++) {
+        const int x1 = rsmt.branch[j].x;
+        const int y1 = rsmt.branch[j].y;
+        const int n = rsmt.branch[j].n;
+        const int x2 = rsmt.branch[n].x;
+        const int y2 = rsmt.branch[n].y;
+
+        if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+          // the position of this segment in seglist
+          seglist_[i].push_back(Segment());
+          auto& seg = seglist_[i].back();
+          if (x1 < x2) {
+            seg.x1 = x1;
+            seg.x2 = x2;
+            seg.y1 = y1;
+            seg.y2 = y2;
+          } else {
+            seg.x1 = x2;
+            seg.x2 = x1;
+            seg.y1 = y2;
+            seg.y2 = y1;
+          }
+
+          seg.netID = i;
+        }
+      }  // loop j
+    }
+  }
+
+  // ===== FLUTE LROUTE BEGIN =====
+  // estimate congestion with 0.5+0.5 L
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (isOriginalAlgorithmRequired(net)) {
+      for (auto& seg : seglist_[i]) {
+        estimateOneSeg(&seg);
+      }
+    }
+  }
+  // L route
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (isOriginalAlgorithmRequired(net)) {
+      for (auto& seg : seglist_[i]) {
+      // no need to reroute the H or V segs
+        if (seg.x1 != seg.x2 || seg.y1 != seg.y2)
+          routeSegLFirstTime(&seg);
+      }
+    }
+  }
+  // ===== FLUTE LROUTE END =====
+
+  std::vector<Tree> carest_rsmts = runALL(isNewAlgorithmRequired);
+
+  // ===== RIPUP FLUTE LROUTE BEGIN =====
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+    seglist_[i].clear();
+  }
+  // ===== RIPUP FLUTE LROUTE END =====
+
+  int carest_index = 0;
+  int flute_index = 0;
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    Tree rsmt;
+    if (isOriginalAlgorithmRequired(net)) {
+      rsmt = flute_rsmts[flute_index++];
+    } else {
+      rsmt = carest_rsmts[carest_index++];
+    }
+
+    for (int j = 0; j < rsmt.branchCount(); j++) {
+      const int x1 = rsmt.branch[j].x;
+      const int y1 = rsmt.branch[j].y;
+      const int n = rsmt.branch[j].n;
+      const int x2 = rsmt.branch[n].x;
+      const int y2 = rsmt.branch[n].y;
+
+      if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+        // the position of this segment in seglist
+        seglist_[i].push_back(Segment());
+        auto& seg = seglist_[i].back();
+        if (x1 < x2) {
+          seg.x1 = x1;
+          seg.x2 = x2;
+          seg.y1 = y1;
+          seg.y2 = y2;
+        } else {
+          seg.x1 = x2;
+          seg.x2 = x1;
+          seg.y1 = y2;
+          seg.y2 = y1;
+        }
+
+        seg.netID = i;
+      }
+    }  // loop j
+  }
+
+  routeLAll(true);
+
+  carest_index = 0;
+  flute_index = 0;
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+
+    if (isOriginalAlgorithmRequired(net)) {
+      Tree rsmt = flute_rsmts[flute_index++];
+      copyStTree(i, rsmt);
+    } else {
+      Tree rsmt = carest_rsmts[carest_index++];
+      copyStTree(i, rsmt);
+    }
+    
+    newrouteL(
+        i,
+        RouteType::NoRoute,
+        true);  // route the net with no previous route for each tree edge
+  }
+}
+
 void FastRouteCore::writeTDInputFile(const char* filename, std::function<bool(FrNet*)> runChecker)
 {
   std::ofstream out(filename);
@@ -1485,6 +1681,52 @@ std::vector<Tree> FastRouteCore::runTD(std::function<bool(FrNet*)> runChecker)
   std::string command_str = "carest_td";
   command_str += " --td_input_file " + td_input_file;
   command_str += " --outdir " + rsmt_output_directory;
+  system(command_str.c_str());
+
+  logger_->report("jayoung-command: {}", command_str);
+
+  std::string summary_file = rsmt_output_directory + "/summary.txt";
+  readSummaryFile(summary_file.c_str());
+
+  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
+  return readRSMTOutputFile(final_st_trees_file.c_str());
+}
+
+
+std::vector<Tree> FastRouteCore::runALL(std::function<bool(FrNet*)> runChecker)
+{
+  char command[1024];
+  std::string results_dir = getenv("RESULTS_DIR");
+  std::string temp_dir = results_dir + "/5_1_temp";
+
+  sprintf(command, "mkdir -p %s", temp_dir.c_str());
+  system(command);
+
+  std::string current_time = getCurrentTimeString();
+  std::string td_input_file = temp_dir + "/all_input_" + current_time + ".txt";
+  writeTDInputFile(td_input_file.c_str(), runChecker);
+  logger_->report("TD input file written to {}", td_input_file);
+
+  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
+  writeRSMTInputFile(rsmt_input_file.c_str(), runChecker);
+  logger_->report("RSMT input file written to {}", rsmt_input_file);
+  std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
+
+  std::string command_str = "allrest";
+  command_str += " --input_file " + td_input_file;
+  command_str += " --outdir " + rsmt_output_directory;
+  const char* env_wwl = getenv("ALL_WEIGHT_WIRELENGTH");
+  if (env_wwl != nullptr) {
+    command_str += " --weight_wirelength " + std::string(env_wwl);
+  }
+  const char* env_wdt = getenv("ALL_WEIGHT_DETOUR");
+  if (env_wdt != nullptr) {
+    command_str += " --weight_detour " + std::string(env_wdt);
+  }
+  const char* env_wof = getenv("ALL_WEIGHT_OVERFLOW");
+  if (env_wof != nullptr) {
+    command_str += " --weight_overflow " + std::string(env_wof);
+  }
   system(command_str.c_str());
 
   logger_->report("jayoung-command: {}", command_str);
