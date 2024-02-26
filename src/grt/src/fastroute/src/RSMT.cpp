@@ -1727,6 +1727,10 @@ std::vector<Tree> FastRouteCore::runALL(std::function<bool(FrNet*)> runChecker)
   if (env_wof != nullptr) {
     command_str += " --weight_overflow " + std::string(env_wof);
   }
+  const char* env_detour_cost_function = getenv("ALL_DETOUR_COST_FUNCTION");
+  if (env_detour_cost_function != nullptr) {
+    command_str += " --detour_cost_function " + std::string(env_detour_cost_function);
+  }
   system(command_str.c_str());
 
   logger_->report("jayoung-command: {}", command_str);
