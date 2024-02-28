@@ -947,6 +947,8 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
     algorithm = atoi(env_var);
   }
 
+  timeDrivenSteinerTree();
+
   if (!call_from_main) {
     // Routability Estimation @NesterovSolve
     logger_->report("Jayoung: NO CALL FROM MAIN");

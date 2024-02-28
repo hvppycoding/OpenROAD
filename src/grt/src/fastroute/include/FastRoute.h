@@ -405,6 +405,7 @@ class FastRouteCore
                     const int acc,
                     const float coeffV,
                     Tree& t);
+  std::vector<Tree> timeDrivenSteinerTree();
   float coeffADJ(const int netID);
   bool HTreeSuite(const int netID);
   bool VTreeSuite(const int netID);
