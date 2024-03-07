@@ -1482,6 +1482,38 @@ void FastRouteCore::gen_brk_ALL()
   }
 }
 
+void FastRouteCore::gen_brk_ALLCPP() {
+  logger_->report("===== gen_brk_ALLCPP =====");
+
+  td_stt_builder_->setGrids(x_grid_, y_grid_);
+  for (int y = 0; y < y_grid_; y++) {
+    for (int x = 0; x < x_grid_ - 1; x++) {
+      unsigned short cap = h_edges_[y][x].cap;
+      unsigned short usage = h_edges_[y][x].usage;
+      unsigned short red = h_edges_[y][x].red;
+      td_stt_builder_->setHEdge(x, y, cap, usage, red);
+    }
+  }
+  for (int y = 0; y < y_grid_ - 1; y++) {
+    for (int x = 0; x < x_grid_; x++) {
+      unsigned short cap = v_edges_[y][x].cap;
+      unsigned short usage = v_edges_[y][x].usage;
+      unsigned short red = v_edges_[y][x].red;
+      td_stt_builder_->setVEdge(x, y, cap, usage, red);
+    }
+  }
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+    FrNet* net = nets_[i];
+    td_stt_builder_->addOrUpdateNet(
+      net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx()
+    );
+  }
+}
+
 void FastRouteCore::writeTDInputFile(const char* filename, std::function<bool(FrNet*)> runChecker)
 {
   std::ofstream out(filename);

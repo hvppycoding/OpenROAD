@@ -51,7 +51,8 @@ using utl::GRT;
 
 FastRouteCore::FastRouteCore(odb::dbDatabase* db,
                              utl::Logger* log,
-                             stt::SteinerTreeBuilder* stt_builder)
+                             stt::SteinerTreeBuilder* stt_builder,
+                             stt::TimingDrivenSteinerTreeBuilder* td_stt_builder)
     : max_degree_(0),
       db_(db),
       overflow_iterations_(0),
@@ -85,6 +86,7 @@ FastRouteCore::FastRouteCore(odb::dbDatabase* db,
       regular_y_(false),
       logger_(log),
       stt_builder_(stt_builder),
+      td_stt_builder_(td_stt_builder),
       debug_(new DebugSetting())
 {
   parasitics_builder_ = nullptr;
@@ -939,6 +941,7 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   const int HYBRID_REST_ALGORITHM = 5;
   const int TIMING_DRIVEN_ALGORITHM = 6;
   const int ALLREST_ALGORITHM = 7;
+  const int ALLREST_CPP_ALGORITHM = 8;
 
   int algorithm;
   if (env_var == nullptr) {
@@ -946,8 +949,6 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   } else {
     algorithm = atoi(env_var);
   }
-
-  timeDrivenSteinerTree();
 
   if (!call_from_main) {
     // Routability Estimation @NesterovSolve
@@ -978,6 +979,8 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   } else if (algorithm == ALLREST_ALGORITHM) {
     logger_->report("Jayoung: ALLREST_ALGORITHM");
     gen_brk_ALL();
+  } else if (algorithm == ALLREST_CPP_ALGORITHM) {
+    gen_brk_ALLCPP();
   } else {
     // Default
     logger_->report("Jayoung: DEFAULT_ALGORITHM");

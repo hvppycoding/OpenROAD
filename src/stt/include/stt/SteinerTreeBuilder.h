@@ -55,18 +55,20 @@ namespace gui {
 class Gui;
 }
 
+namespace tdr {
+class TimingDrivenSteinerTreeBuilder;
+}
+
 namespace stt {
 
 using utl::Logger;
 
-struct Branch
-{
+struct Branch {
   int x, y;  // starting point of the branch
   int n;     // index of neighbor
 };
 
-struct Tree
-{
+struct Tree {
   int deg;                     // degree
   int length;                  // total wirelength
   std::vector<Branch> branch;  // array of tree branches
@@ -75,31 +77,23 @@ struct Tree
   int branchCount() const { return branch.size(); }
 };
 
-class SteinerTreeBuilder
-{
+class SteinerTreeBuilder {
  public:
   SteinerTreeBuilder();
   ~SteinerTreeBuilder() = default;
 
   void init(odb::dbDatabase* db, Logger* logger);
 
-  Tree makeSteinerTree(const std::vector<int>& x,
-                       const std::vector<int>& y,
-                       int drvr_index,
-                       float alpha);
-  Tree makeSteinerTree(const std::vector<int>& x,
-                       const std::vector<int>& y,
+  Tree makeSteinerTree(const std::vector<int>& x, const std::vector<int>& y,
+                       int drvr_index, float alpha);
+  Tree makeSteinerTree(const std::vector<int>& x, const std::vector<int>& y,
                        int drvr_index);
-  Tree makeSteinerTree(odb::dbNet* net,
-                       const std::vector<int>& x,
-                       const std::vector<int>& y,
-                       int drvr_index);
+  Tree makeSteinerTree(odb::dbNet* net, const std::vector<int>& x,
+                       const std::vector<int>& y, int drvr_index);
   // API only for FastRoute, that requires the use of flutes in its
   // internal flute implementation
-  Tree makeSteinerTree(const std::vector<int>& x,
-                       const std::vector<int>& y,
-                       const std::vector<int>& s,
-                       int acc);
+  Tree makeSteinerTree(const std::vector<int>& x, const std::vector<int>& y,
+                       const std::vector<int>& s, int acc);
   bool checkTree(const Tree& tree) const;
   float getAlpha() const { return alpha_; }
   void setAlpha(float alpha);
@@ -122,9 +116,7 @@ class SteinerTreeBuilder
 };
 
 // Used by regressions.
-void reportSteinerTree(const Tree& tree,
-                       int drvr_x,
-                       int drvr_y,
+void reportSteinerTree(const Tree& tree, int drvr_x, int drvr_y,
                        Logger* logger);
 void reportSteinerTree(const stt::Tree& tree, Logger* logger);
 

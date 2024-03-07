@@ -63,6 +63,7 @@ swig_lib(NAME      stt
 
 add_library(stt_lib
     src/SteinerTreeBuilder.cpp
+    src/TimingDrivenSteinerTreeBuilder.cpp
     ${FLUTE_HOME}/flute.cpp
     ${POWV9_CPP}
     ${POST9_CPP}

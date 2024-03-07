@@ -44,6 +44,7 @@
 #include "grt/GRoute.h"
 #include "odb/geom.h"
 #include "stt/SteinerTreeBuilder.h"
+#include "stt/TimingDrivenSteinerTreeBuilder.h"
 
 namespace utl {
 class Logger;
@@ -56,6 +57,7 @@ class dbTechLayerDir;
 
 namespace stt {
 class SteinerTreeBuilder;
+class TimingDrivenSteinerTreeBuilder;
 }
 
 namespace gui {
@@ -92,7 +94,8 @@ class FastRouteCore
  public:
   FastRouteCore(odb::dbDatabase* db,
                 utl::Logger* log,
-                stt::SteinerTreeBuilder* stt_builder);
+                stt::SteinerTreeBuilder* stt_builder,
+                stt::TimingDrivenSteinerTreeBuilder* td_stt_builder);
   ~FastRouteCore();
 
   void clear();
@@ -393,6 +396,7 @@ class FastRouteCore
   void gen_brk_HYBRID(int iterations);
   void gen_brk_TD();
   void gen_brk_ALL();
+  void gen_brk_ALLCPP();
   void fluteNormal(const int netID,
                    const std::vector<int>& x,
                    const std::vector<int>& y,
@@ -405,7 +409,6 @@ class FastRouteCore
                     const int acc,
                     const float coeffV,
                     Tree& t);
-  std::vector<Tree> timeDrivenSteinerTree();
   float coeffADJ(const int netID);
   bool HTreeSuite(const int netID);
   bool VTreeSuite(const int netID);
@@ -628,6 +631,7 @@ class FastRouteCore
 
   utl::Logger* logger_;
   stt::SteinerTreeBuilder* stt_builder_;
+  stt::TimingDrivenSteinerTreeBuilder* td_stt_builder_;
   AbstractMakeWireParasitics* parasitics_builder_;
 
   std::unique_ptr<DebugSetting> debug_;

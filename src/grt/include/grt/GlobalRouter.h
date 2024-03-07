@@ -65,7 +65,8 @@ class dbTechLayer;
 
 namespace stt {
 class SteinerTreeBuilder;
-}
+class TimingDrivenSteinerTreeBuilder;
+}  // namespace stt
 
 namespace ant {
 class AntennaChecker;
@@ -401,6 +402,7 @@ class GlobalRouter : public ant::GlobalRouteSource
 
   utl::Logger* logger_;
   stt::SteinerTreeBuilder* stt_builder_;
+  stt::TimingDrivenSteinerTreeBuilder* td_stt_builder_;
   ant::AntennaChecker* antenna_checker_;
   dpl::Opendp* opendp_;
   rsz::Resizer* resizer_;
