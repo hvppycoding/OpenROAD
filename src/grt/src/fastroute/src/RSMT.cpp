@@ -32,10 +32,10 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include <ctime>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
 #include "AbstractFastRouteRenderer.h"
 #include "DataType.h"
@@ -46,35 +46,24 @@ namespace grt {
 
 using utl::GRT;
 
-struct pnt
-{
+struct pnt {
   int x, y;
   int o;
 };
 
-int orderx(const pnt* a, const pnt* b)
-{
-  return a->x < b->x;
-}
+int orderx(const pnt* a, const pnt* b) { return a->x < b->x; }
 
-static int ordery(const pnt* a, const pnt* b)
-{
-  return a->y < b->y;
-}
+static int ordery(const pnt* a, const pnt* b) { return a->y < b->y; }
 
 // binary search to map the new coordinates to original coordinates
-static int mapxy(const int nx,
-                 const std::vector<int>& xs,
-                 const std::vector<int>& nxs,
-                 const int d)
-{
+static int mapxy(const int nx, const std::vector<int>& xs,
+                 const std::vector<int>& nxs, const int d) {
   int min = 0;
   int max = d - 1;
 
   while (min <= max) {
     const int mid = (min + max) / 2;
-    if (nx == nxs[mid])
-      return (xs[mid]);
+    if (nx == nxs[mid]) return (xs[mid]);
     if (nx < nxs[mid])
       max = mid - 1;
     else
@@ -84,8 +73,7 @@ static int mapxy(const int nx,
   return -1;
 }
 
-void FastRouteCore::copyStTree(const int ind, const Tree& rsmt)
-{
+void FastRouteCore::copyStTree(const int ind, const Tree& rsmt) {
   const int d = rsmt.deg;
   const int numnodes = rsmt.branchCount();
   const int numedges = numnodes - 1;
@@ -99,8 +87,7 @@ void FastRouteCore::copyStTree(const int ind, const Tree& rsmt)
   // initialize the nbrcnt for treenodes
   const int sizeV = 2 * nets_[ind]->getNumPins();
   std::vector<int> nbrcnt(sizeV);
-  for (int i = 0; i < numnodes; i++)
-    nbrcnt[i] = 0;
+  for (int i = 0; i < numnodes; i++) nbrcnt[i] = 0;
 
   int edgecnt = 0;
   // original rsmt has 2*d-2 branch (one is a loop for root), in StTree 2*d-3
@@ -150,21 +137,15 @@ void FastRouteCore::copyStTree(const int ind, const Tree& rsmt)
 
   if (edgecnt != numnodes - 1) {
     logger_->error(
-        GRT,
-        189,
+        GRT, 189,
         "Failure in copy tree. Number of edges: {}. Number of nodes: {}.",
-        edgecnt,
-        numnodes);
+        edgecnt, numnodes);
   }
 }
 
-void FastRouteCore::fluteNormal(const int netID,
-                                const std::vector<int>& x,
-                                const std::vector<int>& y,
-                                const int acc,
-                                const float coeffV,
-                                Tree& t)
-{
+void FastRouteCore::fluteNormal(const int netID, const std::vector<int>& x,
+                                const std::vector<int>& y, const int acc,
+                                const float coeffV, Tree& t) {
   const int d = x.size();
 
   if (d == 2) {
@@ -310,27 +291,23 @@ void FastRouteCore::fluteNormal(const int netID,
       gs_[netID][i] = s[i];
 
       tmp_xs[i] = xs[i] * 100;
-      tmp_ys[i] = ys[i] * ((int) (100 * coeffV));
+      tmp_ys[i] = ys[i] * ((int)(100 * coeffV));
     }
 
     t = stt_builder_->makeSteinerTree(tmp_xs, tmp_ys, s, acc);
 
     for (auto& branch : t.branch) {
       branch.x /= 100;
-      branch.y /= ((int) (100 * coeffV));
+      branch.y /= ((int)(100 * coeffV));
     }
 
     delete[] pt;
   }
 }
 
-void FastRouteCore::fluteCongest(const int netID,
-                                 const std::vector<int>& x,
-                                 const std::vector<int>& y,
-                                 const int acc,
-                                 const float coeffV,
-                                 Tree& t)
-{
+void FastRouteCore::fluteCongest(const int netID, const std::vector<int>& x,
+                                 const std::vector<int>& y, const int acc,
+                                 const float coeffV, Tree& t) {
   const float coeffH = 1;
   const int d = x.size();
 
@@ -437,8 +414,8 @@ void FastRouteCore::fluteCongest(const int netID,
           usageH += h_edges_[k][j].est_usage_red();
       }
       if (x_seg[i] != 0 && usageH != 0) {
-        x_seg[i]
-            *= coeffH * usageH / ((xs[i + 1] - xs[i]) * height * h_capacity_);
+        x_seg[i] *=
+            coeffH * usageH / ((xs[i + 1] - xs[i]) * height * h_capacity_);
         x_seg[i] = std::max(1, x_seg[i]);  // the segment len is at least 1 if
                                            // original segment len > 0
       }
@@ -448,8 +425,8 @@ void FastRouteCore::fluteCongest(const int netID,
           usageV += v_edges_[j][k].est_usage_red();
       }
       if (y_seg[i] != 0 && usageV != 0) {
-        y_seg[i]
-            *= coeffV * usageV / ((ys[i + 1] - ys[i]) * width * v_capacity_);
+        y_seg[i] *=
+            coeffV * usageV / ((ys[i + 1] - ys[i]) * width * v_capacity_);
         y_seg[i] = std::max(1, y_seg[i]);  // the segment len is at least 1 if
                                            // original segment len > 0
       }
@@ -472,8 +449,7 @@ void FastRouteCore::fluteCongest(const int netID,
   }
 }
 
-bool FastRouteCore::netCongestion(const int netID)
-{
+bool FastRouteCore::netCongestion(const int netID) {
   for (const Segment& seg : seglist_[netID]) {
     const int ymin = std::min(seg.y1, seg.y2);
     const int ymax = std::max(seg.y1, seg.y2);
@@ -481,30 +457,30 @@ bool FastRouteCore::netCongestion(const int netID)
     // remove L routing
     if (seg.xFirst) {
       for (int i = seg.x1; i < seg.x2; i++) {
-        const int cap = getEdgeCapacity(
-            nets_[netID], i, seg.y1, EdgeDirection::Horizontal);
+        const int cap =
+            getEdgeCapacity(nets_[netID], i, seg.y1, EdgeDirection::Horizontal);
         if (h_edges_[seg.y1][i].est_usage >= cap) {
           return true;
         }
       }
       for (int i = ymin; i < ymax; i++) {
-        const int cap
-            = getEdgeCapacity(nets_[netID], seg.x2, i, EdgeDirection::Vertical);
+        const int cap =
+            getEdgeCapacity(nets_[netID], seg.x2, i, EdgeDirection::Vertical);
         if (v_edges_[i][seg.x2].est_usage >= cap) {
           return true;
         }
       }
     } else {
       for (int i = ymin; i < ymax; i++) {
-        const int cap
-            = getEdgeCapacity(nets_[netID], seg.x1, i, EdgeDirection::Vertical);
+        const int cap =
+            getEdgeCapacity(nets_[netID], seg.x1, i, EdgeDirection::Vertical);
         if (v_edges_[i][seg.x1].est_usage >= cap) {
           return true;
         }
       }
       for (int i = seg.x1; i < seg.x2; i++) {
-        const int cap = getEdgeCapacity(
-            nets_[netID], i, seg.y2, EdgeDirection::Horizontal);
+        const int cap =
+            getEdgeCapacity(nets_[netID], i, seg.y2, EdgeDirection::Horizontal);
         if (h_edges_[seg.y2][i].est_usage >= cap) {
           return true;
         }
@@ -514,8 +490,7 @@ bool FastRouteCore::netCongestion(const int netID)
   return false;
 }
 
-bool FastRouteCore::VTreeSuite(const int netID)
-{
+bool FastRouteCore::VTreeSuite(const int netID) {
   int xmax = 0;
   int ymax = 0;
   int xmin = BIG_INT;
@@ -544,8 +519,7 @@ bool FastRouteCore::VTreeSuite(const int netID)
   }
 }
 
-bool FastRouteCore::HTreeSuite(const int netID)
-{
+bool FastRouteCore::HTreeSuite(const int netID) {
   int xmax = 0;
   int ymax = 0;
   int xmin = BIG_INT;
@@ -574,8 +548,7 @@ bool FastRouteCore::HTreeSuite(const int netID)
   }
 }
 
-float FastRouteCore::coeffADJ(const int netID)
-{
+float FastRouteCore::coeffADJ(const int netID) {
   const int deg = nets_[netID]->getNumPins();
   int xmax = 0;
   int ymax = 0;
@@ -645,11 +618,8 @@ float FastRouteCore::coeffADJ(const int netID)
 }
 
 void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
-                                 const bool reRoute,
-                                 const bool genTree,
-                                 const bool newType,
-                                 const bool noADJ)
-{
+                                 const bool reRoute, const bool genTree,
+                                 const bool newType, const bool noADJ) {
   Tree rsmt;
   int numShift = 0;
 
@@ -697,8 +667,8 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
     // TODO: move this flute implementation to SteinerTreeBuilder
     const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
     if (net_alpha > 0.0) {
-      rsmt = stt_builder_->makeSteinerTree(
-          net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx());
+      rsmt = stt_builder_->makeSteinerTree(net->getDbNet(), net->getPinX(),
+                                           net->getPinY(), net->getDriverIdx());
     } else {
       float coeffV = 1.36;
 
@@ -708,11 +678,11 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
         coeffV = noADJ ? 1.2 : coeffADJ(i);
         cong = netCongestion(i);
         if (cong) {
-          fluteCongest(
-              i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+          fluteCongest(i, net->getPinX(), net->getPinY(), flute_accuracy,
+                       coeffV, rsmt);
         } else {
-          fluteNormal(
-              i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+          fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV,
+                      rsmt);
         }
         if (d > 3) {
           numShift += edgeShiftNew(rsmt, i);
@@ -722,23 +692,26 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
         if (noADJ || HTreeSuite(i)) {
           coeffV = 1.2;
         }
-        fluteNormal(
-            i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV,
+                    rsmt);
       }
 
-      rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+      rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(),
+                              net->getDriverIdx());
     }
 
     // logger_->report("Net {}", i);
     // for (int k = 0; k < net->getNumPins(); k++) {
-    //   logger_->report("Pin {}: ({}, {})", k, net->getPinX()[k], net->getPinY()[k]);
+    //   logger_->report("Pin {}: ({}, {})", k, net->getPinX()[k],
+    //   net->getPinY()[k]);
     // }
     // for (int k = 0; k < rsmt.branchCount(); k++) {
-    //   logger_->report("Branch {}: ({}, {}) -> {}", k, rsmt.branch[k].x, rsmt.branch[k].y, rsmt.branch[k].n);
+    //   logger_->report("Branch {}: ({}, {}) -> {}", k, rsmt.branch[k].x,
+    //   rsmt.branch[k].y, rsmt.branch[k].n);
     // }
 
-    if (debug_->isOn() && debug_->steinerTree_
-        && net->getDbNet() == debug_->net_) {
+    if (debug_->isOn() && debug_->steinerTree_ &&
+        net->getDbNet() == debug_->net_) {
       steinerTreeVisualization(rsmt, net);
     }
 
@@ -756,7 +729,8 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
     }
 
     // for (int k = 0; k < net->getNumPins(); k++) {
-    //   logger_->report("{}: x {}, y {}", k, net->getPinX()[k], net->getPinY()[k]);
+    //   logger_->report("{}: x {}, y {}", k, net->getPinX()[k],
+    //   net->getPinY()[k]);
     // }
 
     for (int j = 0; j < rsmt.branchCount(); j++) {
@@ -795,35 +769,27 @@ void FastRouteCore::gen_brk_RSMT(const bool congestionDriven,
     if (reRoute) {
       // update the est_usage due to the segments in this net
       newrouteL(
-          i,
-          RouteType::NoRoute,
+          i, RouteType::NoRoute,
           true);  // route the net with no previous route for each tree edge
     }
   }  // loop i
 
-  debugPrint(logger_,
-             GRT,
-             "rsmt",
-             1,
+  debugPrint(logger_, GRT, "rsmt", 1,
              "Wirelength: {}, Wirelength1: {}\nNumber of segments: {}\nNumber "
              "of shifts: {}",
-             wl,
-             wl1,
-             totalNumSeg,
-             numShift);
+             wl, wl1, totalNumSeg, numShift);
 }
 
 static std::string getCurrentTimeString() {
-    std::time_t now = std::time(nullptr);
-    std::tm* ptm = std::localtime(&now);
-    char buffer[32];
-    // Format: YYYYMMDD-HHMMSS
-    std::strftime(buffer, 32, "%Y%m%d-%H%M%S", ptm); 
-    return std::string(buffer);
+  std::time_t now = std::time(nullptr);
+  std::tm* ptm = std::localtime(&now);
+  char buffer[32];
+  // Format: YYYYMMDD-HHMMSS
+  std::strftime(buffer, 32, "%Y%m%d-%H%M%S", ptm);
+  return std::string(buffer);
 }
 
-void FastRouteCore::gen_brk_CAREST(int iterations)
-{
+void FastRouteCore::gen_brk_CAREST(int iterations) {
   char command[1024];
   logger_->report("===== FastRouteCore::gen_brk_CAREST =====");
   auto runChecker = [=](FrNet* net) {
@@ -831,7 +797,7 @@ void FastRouteCore::gen_brk_CAREST(int iterations)
       return true;
     } else {
       return false;
-    } 
+    }
   };
   std::vector<Tree> rsmt_trees = runCAREST(iterations, runChecker);
 
@@ -883,19 +849,16 @@ void FastRouteCore::gen_brk_CAREST(int iterations)
     }
 
     Tree rsmt = rsmt_trees[i];
-    
+
     copyStTree(i, rsmt);
-    newrouteL(
-        i,
-        RouteType::NoRoute,
-        true);  // route the net with no previous route for each tree edge
+    newrouteL(i, RouteType::NoRoute,
+              true);  // route the net with no previous route for each tree edge
   }
 }
 
-void FastRouteCore::gen_brk_HYBRID(int iterations)
-{
+void FastRouteCore::gen_brk_HYBRID(int iterations) {
   logger_->report("===== gen_brk_HYBRID =====");
-  
+
   int numShift = 0;
 
   int totalNumSeg = 0;
@@ -926,11 +889,14 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
       Tree rsmt;
       const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
       if (net_alpha > 0.0) {
-        rsmt = stt_builder_->makeSteinerTree(
-          net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx());
+        rsmt =
+            stt_builder_->makeSteinerTree(net->getDbNet(), net->getPinX(),
+                                          net->getPinY(), net->getDriverIdx());
       } else {
-        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
-        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV,
+                    rsmt);
+        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(),
+                                net->getDriverIdx());
       }
       flute_rsmts.push_back(rsmt);
       for (int j = 0; j < rsmt.branchCount(); j++) {
@@ -989,15 +955,15 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
 
     if (isOriginalAlgorithmRequired(net)) {
       for (auto& seg : seglist_[i]) {
-      // no need to reroute the H or V segs
-        if (seg.x1 != seg.x2 || seg.y1 != seg.y2)
-          routeSegLFirstTime(&seg);
+        // no need to reroute the H or V segs
+        if (seg.x1 != seg.x2 || seg.y1 != seg.y2) routeSegLFirstTime(&seg);
       }
     }
   }
   // ===== FLUTE LROUTE END =====
 
-  std::vector<Tree> carest_rsmts = runCAREST(iterations, isNewAlgorithmRequired);
+  std::vector<Tree> carest_rsmts =
+      runCAREST(iterations, isNewAlgorithmRequired);
 
   // ===== RIPUP FLUTE LROUTE BEGIN =====
   for (int i = 0; i < netCount(); i++) {
@@ -1081,19 +1047,15 @@ void FastRouteCore::gen_brk_HYBRID(int iterations)
       Tree rsmt = carest_rsmts[carest_index++];
       copyStTree(i, rsmt);
     }
-    
-    newrouteL(
-        i,
-        RouteType::NoRoute,
-        true);  // route the net with no previous route for each tree edge
+
+    newrouteL(i, RouteType::NoRoute,
+              true);  // route the net with no previous route for each tree edge
   }
 }
 
-
-void FastRouteCore::gen_brk_TD()
-{
+void FastRouteCore::gen_brk_TD() {
   logger_->report("===== gen_brk_TD =====");
-  
+
   int numShift = 0;
   int totalNumSeg = 0;
 
@@ -1123,11 +1085,14 @@ void FastRouteCore::gen_brk_TD()
       Tree rsmt;
       const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
       if (net_alpha > 0.0) {
-        rsmt = stt_builder_->makeSteinerTree(
-          net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx());
+        rsmt =
+            stt_builder_->makeSteinerTree(net->getDbNet(), net->getPinX(),
+                                          net->getPinY(), net->getDriverIdx());
       } else {
-        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
-        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV,
+                    rsmt);
+        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(),
+                                net->getDriverIdx());
       }
       flute_rsmts.push_back(rsmt);
       for (int j = 0; j < rsmt.branchCount(); j++) {
@@ -1186,9 +1151,8 @@ void FastRouteCore::gen_brk_TD()
 
     if (isOriginalAlgorithmRequired(net)) {
       for (auto& seg : seglist_[i]) {
-      // no need to reroute the H or V segs
-        if (seg.x1 != seg.x2 || seg.y1 != seg.y2)
-          routeSegLFirstTime(&seg);
+        // no need to reroute the H or V segs
+        if (seg.x1 != seg.x2 || seg.y1 != seg.y2) routeSegLFirstTime(&seg);
       }
     }
   }
@@ -1278,18 +1242,15 @@ void FastRouteCore::gen_brk_TD()
       Tree rsmt = carest_rsmts[carest_index++];
       copyStTree(i, rsmt);
     }
-    
-    newrouteL(
-        i,
-        RouteType::NoRoute,
-        true);  // route the net with no previous route for each tree edge
+
+    newrouteL(i, RouteType::NoRoute,
+              true);  // route the net with no previous route for each tree edge
   }
 }
 
-void FastRouteCore::gen_brk_ALL()
-{
+void FastRouteCore::gen_brk_ALL() {
   logger_->report("===== gen_brk_ALL =====");
-  
+
   int numShift = 0;
   int totalNumSeg = 0;
 
@@ -1319,11 +1280,14 @@ void FastRouteCore::gen_brk_ALL()
       Tree rsmt;
       const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
       if (net_alpha > 0.0) {
-        rsmt = stt_builder_->makeSteinerTree(
-          net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx());
+        rsmt =
+            stt_builder_->makeSteinerTree(net->getDbNet(), net->getPinX(),
+                                          net->getPinY(), net->getDriverIdx());
       } else {
-        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
-        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV,
+                    rsmt);
+        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(),
+                                net->getDriverIdx());
       }
       flute_rsmts.push_back(rsmt);
       for (int j = 0; j < rsmt.branchCount(); j++) {
@@ -1382,9 +1346,8 @@ void FastRouteCore::gen_brk_ALL()
 
     if (isOriginalAlgorithmRequired(net)) {
       for (auto& seg : seglist_[i]) {
-      // no need to reroute the H or V segs
-        if (seg.x1 != seg.x2 || seg.y1 != seg.y2)
-          routeSegLFirstTime(&seg);
+        // no need to reroute the H or V segs
+        if (seg.x1 != seg.x2 || seg.y1 != seg.y2) routeSegLFirstTime(&seg);
       }
     }
   }
@@ -1474,11 +1437,9 @@ void FastRouteCore::gen_brk_ALL()
       Tree rsmt = carest_rsmts[carest_index++];
       copyStTree(i, rsmt);
     }
-    
-    newrouteL(
-        i,
-        RouteType::NoRoute,
-        true);  // route the net with no previous route for each tree edge
+
+    newrouteL(i, RouteType::NoRoute,
+              true);  // route the net with no previous route for each tree edge
   }
 }
 
@@ -1508,16 +1469,23 @@ void FastRouteCore::gen_brk_ALLCPP() {
       continue;
     }
     FrNet* net = nets_[i];
-    td_stt_builder_->addOrUpdateNet(
-      net->getDbNet(), net->getPinX(), net->getPinY(), net->getDriverIdx()
-    );
+    vector<double> slack;
+    vector<double> arrival_time;
+    for (int j = 0; j < net->getNumPins(); j++) {
+      FrPin pin = net->getFrPin(j);
+      slack.push_back(pin.slack());
+      arrival_time.push_back(pin.arrivalTime());
+    }
+    td_stt_builder_->addOrUpdateNet(net->getDbNet(), net->getPinX(),
+                                    net->getPinY(), net->getDriverIdx(), slack,
+                                    arrival_time);
   }
 }
 
-void FastRouteCore::writeTDInputFile(const char* filename, std::function<bool(FrNet*)> runChecker)
-{
+void FastRouteCore::writeTDInputFile(const char* filename,
+                                     std::function<bool(FrNet*)> runChecker) {
   std::ofstream out(filename);
-    
+
   if (!out) {
     logger_->error(GRT, 900, "Cannot open file {}.", filename);
   }
@@ -1544,29 +1512,23 @@ void FastRouteCore::writeTDInputFile(const char* filename, std::function<bool(Fr
     }
     FrNet* net = nets_[i];
     if (runChecker(net)) {
-      out << "NET " << i << " PIN " << net->getNumPins() 
-          << " DRV " << net->getDriverIdx() << '\n';
+      out << "NET " << i << " PIN " << net->getNumPins() << " DRV "
+          << net->getDriverIdx() << '\n';
       for (int j = 0; j < net->getNumPins(); j++) {
         FrPin p = net->getFrPin(j);
-        out << p.pinId() << " "
-            << p.x() << " " 
-            << p.y() << " "
-            << p.isDriver() << " "
-            << p.slack() << " "
-            << p.arrivalTime() << " "
-            << p.instId() << " "
-            << p.isSequential() << " "
-            << p.pinName() << " "
+        out << p.pinId() << " " << p.x() << " " << p.y() << " " << p.isDriver()
+            << " " << p.slack() << " " << p.arrivalTime() << " " << p.instId()
+            << " " << p.isSequential() << " " << p.pinName() << " "
             << p.instName() << '\n';
       }
     }
   }
 }
 
-void FastRouteCore::writeRSMTInputFile(const char* filename, std::function<bool(FrNet*)> runChecker)
-{
+void FastRouteCore::writeRSMTInputFile(const char* filename,
+                                       std::function<bool(FrNet*)> runChecker) {
   std::ofstream out(filename);
-  
+
   if (!out) {
     logger_->error(GRT, 999, "Cannot open file {}.", filename);
   }
@@ -1593,8 +1555,8 @@ void FastRouteCore::writeRSMTInputFile(const char* filename, std::function<bool(
     }
     FrNet* net = nets_[i];
     if (runChecker(net)) {
-      out << "NET " << i << ' ' << net->getNumPins() 
-          << " DRV " << net->getDriverIdx() << '\n';
+      out << "NET " << i << ' ' << net->getNumPins() << " DRV "
+          << net->getDriverIdx() << '\n';
       for (int j = 0; j < net->getNumPins(); j++) {
         out << net->getPinX(j) << " " << net->getPinY(j) << '\n';
       }
@@ -1602,50 +1564,49 @@ void FastRouteCore::writeRSMTInputFile(const char* filename, std::function<bool(
   }
 }
 
-std::vector<Tree> FastRouteCore::readRSMTOutputFile(const char* filename) 
-{
-    std::ifstream file(filename);
-    std::string line;
-    std::vector<Tree> rsmt_trees;
-    Tree rsmt;
-    stt::Branch branch;
-    int netId;
+std::vector<Tree> FastRouteCore::readRSMTOutputFile(const char* filename) {
+  std::ifstream file(filename);
+  std::string line;
+  std::vector<Tree> rsmt_trees;
+  Tree rsmt;
+  stt::Branch branch;
+  int netId;
 
-    if (file.is_open()) {
-        while (getline(file, line)) {
-            std::istringstream iss(line);
-            std::string token;
-            iss >> token;
-            if (token == "NET") {
-                iss >> netId;
-            } else if (token == "DEGREE") {
-                iss >> rsmt.deg;
-            } else if (token == "LENGTH") {
-                iss >> rsmt.length;
-            } else if (token == "BRANCH") {
-                int branchCount;
-                iss >> branchCount;
-                rsmt.branch.clear();
-                rsmt.branch.reserve(branchCount);
-                for (int i = 0; i < branchCount; i++) {
-                    getline(file, line);
-                    // std::cout << line << std::endl;
-                    iss = std::istringstream(line);
-                    iss >> branch.x >> branch.y >> branch.n;
-                    rsmt.branch.push_back(branch);
-                }
-                rsmt_trees.push_back(rsmt);
-            }
+  if (file.is_open()) {
+    while (getline(file, line)) {
+      std::istringstream iss(line);
+      std::string token;
+      iss >> token;
+      if (token == "NET") {
+        iss >> netId;
+      } else if (token == "DEGREE") {
+        iss >> rsmt.deg;
+      } else if (token == "LENGTH") {
+        iss >> rsmt.length;
+      } else if (token == "BRANCH") {
+        int branchCount;
+        iss >> branchCount;
+        rsmt.branch.clear();
+        rsmt.branch.reserve(branchCount);
+        for (int i = 0; i < branchCount; i++) {
+          getline(file, line);
+          // std::cout << line << std::endl;
+          iss = std::istringstream(line);
+          iss >> branch.x >> branch.y >> branch.n;
+          rsmt.branch.push_back(branch);
         }
-        file.close();
-    } else {
-        std::cerr << "Unable to open file";
+        rsmt_trees.push_back(rsmt);
+      }
     }
-    return rsmt_trees;
+    file.close();
+  } else {
+    std::cerr << "Unable to open file";
+  }
+  return rsmt_trees;
 }
 
-std::vector<Tree> FastRouteCore::runCAREST(int iterations, std::function<bool(FrNet*)> runChecker)
-{
+std::vector<Tree> FastRouteCore::runCAREST(
+    int iterations, std::function<bool(FrNet*)> runChecker) {
   char command[1024];
   std::string results_dir = getenv("RESULTS_DIR");
   std::string temp_dir = results_dir + "/5_1_temp";
@@ -1658,7 +1619,8 @@ std::vector<Tree> FastRouteCore::runCAREST(int iterations, std::function<bool(Fr
   writeTDInputFile(td_input_file.c_str(), runChecker);
   logger_->report("TD input file written to {}", td_input_file);
 
-  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
+  std::string rsmt_input_file =
+      temp_dir + "/rsmt_input_" + current_time + ".txt";
   writeRSMTInputFile(rsmt_input_file.c_str(), runChecker);
   logger_->report("RSMT input file written to {}", rsmt_input_file);
   std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
@@ -1686,13 +1648,12 @@ std::vector<Tree> FastRouteCore::runCAREST(int iterations, std::function<bool(Fr
   std::string summary_file = rsmt_output_directory + "/summary.txt";
   readSummaryFile(summary_file.c_str());
 
-  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
+  std::string final_st_trees_file =
+      rsmt_output_directory + "/final_st_trees.txt";
   return readRSMTOutputFile(final_st_trees_file.c_str());
 }
 
-
-std::vector<Tree> FastRouteCore::runTD(std::function<bool(FrNet*)> runChecker)
-{
+std::vector<Tree> FastRouteCore::runTD(std::function<bool(FrNet*)> runChecker) {
   char command[1024];
   std::string results_dir = getenv("RESULTS_DIR");
   std::string temp_dir = results_dir + "/5_1_temp";
@@ -1705,7 +1666,8 @@ std::vector<Tree> FastRouteCore::runTD(std::function<bool(FrNet*)> runChecker)
   writeTDInputFile(td_input_file.c_str(), runChecker);
   logger_->report("TD input file written to {}", td_input_file);
 
-  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
+  std::string rsmt_input_file =
+      temp_dir + "/rsmt_input_" + current_time + ".txt";
   writeRSMTInputFile(rsmt_input_file.c_str(), runChecker);
   logger_->report("RSMT input file written to {}", rsmt_input_file);
   std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
@@ -1720,13 +1682,13 @@ std::vector<Tree> FastRouteCore::runTD(std::function<bool(FrNet*)> runChecker)
   std::string summary_file = rsmt_output_directory + "/summary.txt";
   readSummaryFile(summary_file.c_str());
 
-  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
+  std::string final_st_trees_file =
+      rsmt_output_directory + "/final_st_trees.txt";
   return readRSMTOutputFile(final_st_trees_file.c_str());
 }
 
-
-std::vector<Tree> FastRouteCore::runALL(std::function<bool(FrNet*)> runChecker)
-{
+std::vector<Tree> FastRouteCore::runALL(
+    std::function<bool(FrNet*)> runChecker) {
   char command[1024];
   std::string results_dir = getenv("RESULTS_DIR");
   std::string temp_dir = results_dir + "/5_1_temp";
@@ -1739,7 +1701,8 @@ std::vector<Tree> FastRouteCore::runALL(std::function<bool(FrNet*)> runChecker)
   writeTDInputFile(td_input_file.c_str(), runChecker);
   logger_->report("TD input file written to {}", td_input_file);
 
-  std::string rsmt_input_file = temp_dir + "/rsmt_input_" + current_time + ".txt";
+  std::string rsmt_input_file =
+      temp_dir + "/rsmt_input_" + current_time + ".txt";
   writeRSMTInputFile(rsmt_input_file.c_str(), runChecker);
   logger_->report("RSMT input file written to {}", rsmt_input_file);
   std::string rsmt_output_directory = temp_dir + "/output_" + current_time;
@@ -1761,7 +1724,8 @@ std::vector<Tree> FastRouteCore::runALL(std::function<bool(FrNet*)> runChecker)
   }
   const char* env_detour_cost_function = getenv("ALL_DETOUR_COST_FUNCTION");
   if (env_detour_cost_function != nullptr) {
-    command_str += " --detour_cost_function " + std::string(env_detour_cost_function);
+    command_str +=
+        " --detour_cost_function " + std::string(env_detour_cost_function);
   }
   system(command_str.c_str());
 
@@ -1770,33 +1734,32 @@ std::vector<Tree> FastRouteCore::runALL(std::function<bool(FrNet*)> runChecker)
   std::string summary_file = rsmt_output_directory + "/summary.txt";
   readSummaryFile(summary_file.c_str());
 
-  std::string final_st_trees_file = rsmt_output_directory + "/final_st_trees.txt";
+  std::string final_st_trees_file =
+      rsmt_output_directory + "/final_st_trees.txt";
   return readRSMTOutputFile(final_st_trees_file.c_str());
 }
 
-void FastRouteCore::readSummaryFile(const char* filename) 
-{
+void FastRouteCore::readSummaryFile(const char* filename) {
   std::ifstream file(filename);
   std::string line;
 
   if (file.is_open()) {
     logger_->report("===== Summary file =====");
     while (getline(file, line)) {
-        std::istringstream iss(line);
-        logger_->report(line);
+      std::istringstream iss(line);
+      logger_->report(line);
     }
     file.close();
     logger_->report("===== End of summary file =====");
   } else {
-      logger_->report("Unable to open summary file {}", filename);
+    logger_->report("Unable to open summary file {}", filename);
   }
 }
 
 Tree FastRouteCore::fixTreeFromFlute(const Tree& rsmt,
                                      const std::vector<int>& x,
                                      const std::vector<int>& y,
-                                     const int driver_idx)
-{
+                                     const int driver_idx) {
   const int d = x.size();
 
   Tree new_tree = Tree();
@@ -1827,7 +1790,8 @@ Tree FastRouteCore::fixTreeFromFlute(const Tree& rsmt,
       }
     }
     if (!found) {
-      logger_->error(GRT, 998, "Cannot find the original terminal in the FLUTE tree.");
+      logger_->error(GRT, 998,
+                     "Cannot find the original terminal in the FLUTE tree.");
     }
   }
   for (int i = 0; i < rsmt.branchCount(); i++) {
@@ -1864,10 +1828,8 @@ Tree FastRouteCore::fixTreeFromFlute(const Tree& rsmt,
   return new_tree;
 }
 
-void FastRouteCore::fixTreeFromFluteHelper(int node,
-                                           const std::vector<std::vector<int> >& graph,
-                                           Tree& rsmt)
-{
+void FastRouteCore::fixTreeFromFluteHelper(
+    int node, const std::vector<std::vector<int> >& graph, Tree& rsmt) {
   for (int i = 0; i < graph[node].size(); i++) {
     int child = graph[node][i];
     if (rsmt.branch[child].n == -1) {
@@ -1877,10 +1839,7 @@ void FastRouteCore::fixTreeFromFluteHelper(int node,
   }
 }
 
-
-void FastRouteCore::gen_brk_FLUTE(const bool reRoute,
-                                  const bool genTree)
-{
+void FastRouteCore::gen_brk_FLUTE(const bool reRoute, const bool genTree) {
   logger_->report("==== gen_brk_FLUTE ====");
   Tree rsmt;
   int numShift = 0;
@@ -1907,17 +1866,17 @@ void FastRouteCore::gen_brk_FLUTE(const bool reRoute,
       }
     }
 
-
     float coeffV = 1.0;
-    fluteNormal(
-        i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV, rsmt);
+    fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV,
+                rsmt);
 
-    if (debug_->isOn() && debug_->steinerTree_
-        && net->getDbNet() == debug_->net_) {
+    if (debug_->isOn() && debug_->steinerTree_ &&
+        net->getDbNet() == debug_->net_) {
       steinerTreeVisualization(rsmt, net);
     }
 
-    rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(), net->getDriverIdx());
+    rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(),
+                            net->getDriverIdx());
 
     if (genTree) {
       copyStTree(i, rsmt);
@@ -1961,24 +1920,15 @@ void FastRouteCore::gen_brk_FLUTE(const bool reRoute,
     if (reRoute) {
       // update the est_usage due to the segments in this net
       newrouteL(
-          i,
-          RouteType::NoRoute,
+          i, RouteType::NoRoute,
           true);  // route the net with no previous route for each tree edge
     }
   }  // loop i
 
-  debugPrint(logger_,
-             GRT,
-             "rsmt",
-             1,
+  debugPrint(logger_, GRT, "rsmt", 1,
              "Wirelength: {}, Wirelength1: {}\nNumber of segments: {}\nNumber "
              "of shifts: {}",
-             wl,
-             wl1,
-             totalNumSeg,
-             numShift);
+             wl, wl1, totalNumSeg, numShift);
 }
-
-
 
 }  // namespace grt

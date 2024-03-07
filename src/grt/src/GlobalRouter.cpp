@@ -125,6 +125,7 @@ void GlobalRouter::init(utl::Logger* logger,
   db_ = db;
   stt_builder_ = stt_builder;
   td_stt_builder_ = new stt::TimingDrivenSteinerTreeBuilder();
+  td_stt_builder_->init(db_, logger_);
   antenna_checker_ = antenna_checker;
   opendp_ = opendp;
   fastroute_ = new FastRouteCore(db_, logger_, stt_builder_, td_stt_builder_);

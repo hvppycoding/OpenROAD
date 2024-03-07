@@ -7,8 +7,15 @@
 
 namespace stt {
 
+void RES::initialize_from_1d(const vector<int>& res) {
+  assert(res.size() % 2 == 0);
+  for (int i = 0; i < res.size(); i += 2) {
+    res_.push_back(RE(res[i], res[i + 1]));
+  }
+}
+
 TimingDrivenSteinerTreeBuilder::TimingDrivenSteinerTreeBuilder()
-    : x_grid_(0), y_grid_(0), db_(nullptr), logger_(nullptr) {}
+    : db_(nullptr), logger_(nullptr), x_grid_(0), y_grid_(0) {}
 
 TimingDrivenSteinerTreeBuilder::~TimingDrivenSteinerTreeBuilder() {
   clearNets();
@@ -51,9 +58,9 @@ void TimingDrivenSteinerTreeBuilder::setHEdge(int x, int y, int cap, int usage,
 }
 
 void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
-    odb::dbNet* dbnet, const std::vector<int>& x,
-    const std::vector<int>& y, int driver_index,
-    const std::vector<double>& slack, const std::vector<double>& arrival_time) {
+    odb::dbNet* dbnet, const std::vector<int>& x, const std::vector<int>& y,
+    int driver_index, const std::vector<double>& slack,
+    const std::vector<double>& arrival_time) {
   TDNet* net;
   if (net_map_.find(dbnet) == net_map_.end()) {
     net = new TDNet();
@@ -67,6 +74,20 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
   net->slack_ = slack;
   net->arrival_time_ = arrival_time;
   net_map_[dbnet] = net;
+
+  bool debug = true;
+  if (debug) {
+    logger_->setDebugLevel(utl::STT, "addNet", 3);
+    std::string msg;
+    msg += "Net ";
+    msg += dbnet->getConstName();
+    msg +=  " ";
+    for (int i = 0; i < x.size(); i++) {
+      msg += "(" + std::to_string(x[i]) + ", " + std::to_string(y[i]) + ") ";
+    }
+    debugPrint(logger_, utl::STT, "addNet", 2, msg);
+    logger_->setDebugLevel(utl::STT, "addNet", 0);
+  }
 }
 
 void TimingDrivenSteinerTreeBuilder::clearNets() {
@@ -106,3 +127,4 @@ Tree TimingDrivenSteinerTreeBuilder::makeSteinerTree(odb::dbNet* net,
 }
 
 }  // namespace stt
+
