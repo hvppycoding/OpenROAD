@@ -1480,6 +1480,10 @@ void FastRouteCore::gen_brk_ALLCPP() {
                                     net->getPinY(), net->getDriverIdx(), slack,
                                     arrival_time);
   }
+
+  td_stt_builder_->buildSteinerTrees();
+
+  stt::testAll();
 }
 
 void FastRouteCore::writeTDInputFile(const char* filename,

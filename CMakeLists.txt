@@ -90,17 +90,18 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Get version string in OPENROAD_VERSION
-if(NOT OPENROAD_VERSION)
-  include(GetGitRevisionDescription)
-  git_describe(OPENROAD_VERSION)
-  string(FIND ${OPENROAD_VERSION} "NOTFOUND" GIT_DESCRIBE_NOTFOUND)
-  if(${GIT_DESCRIBE_NOTFOUND} GREATER -1)
-    message(WARNING "OpenROAD git describe failed, using sha1 instead")
-    get_git_head_revision(GIT_REFSPEC OPENROAD_VERSION)
-  endif()
-endif()
 
-message(STATUS "OpenROAD version: ${OPENROAD_VERSION}")
+# if(NOT OPENROAD_VERSION)
+  # include(GetGitRevisionDescription)
+  # git_describe(OPENROAD_VERSION)
+  # string(FIND ${OPENROAD_VERSION} "NOTFOUND" GIT_DESCRIBE_NOTFOUND)
+  # if(${GIT_DESCRIBE_NOTFOUND} GREATER -1)
+    # message(WARNING "OpenROAD git describe failed, using sha1 instead")
+    # get_git_head_revision(GIT_REFSPEC OPENROAD_VERSION)
+  # endif()
+# endif()
+# 
+# message(STATUS "OpenROAD version: ${OPENROAD_VERSION}")
 
 # Default to bulding optimnized/release executable.
 if(NOT CMAKE_BUILD_TYPE)

@@ -26,8 +26,16 @@ namespace stt {
 using stt::Tree;
 using utl::Logger;
 
+class TDPoint {
+ public:
+  TDPoint(): x_(0), y_(0) {}
+  TDPoint(int x, int y) : x_(x), y_(y) {}
+  int x_;
+  int y_;
+};
+
 class TDPin {
-public:
+ public:
   int x_;
   int y_;
   bool is_driver_;
@@ -36,8 +44,9 @@ public:
 };
 
 class TDNet {
-public:
+ public:
   const odb::dbNet* dbnet_;
+  int n_pins_;
   std::vector<int> x_;
   std::vector<int> y_;
   int driver_index_;
@@ -45,9 +54,8 @@ public:
   std::vector<double> arrival_time_;
 };
 
-class TDEdge
-{
-public:
+class TDEdge {
+ public:
   TDEdge() : cap(0), usage(0), red(0) {}
 
   unsigned short cap;
@@ -57,9 +65,8 @@ public:
 
 typedef std::pair<int, int> RE;
 
-class RES
-{
-public:
+class RES {
+ public:
   RES() {}
   RES(const vector<int>& res) { initialize_from_1d(res); }
   RES(const RES& res) { res_ = res.res_; }
@@ -67,13 +74,22 @@ public:
   RE get(int i) const { return res_[i]; }
   int count() const { return res_.size(); }
 
-private:
+  std::vector<RE>::iterator begin() { return res_.begin(); }
+  std::vector<RE>::iterator end() { return res_.end(); }
+  std::vector<RE>::const_iterator begin() const { return res_.begin(); }
+  std::vector<RE>::const_iterator end() const { return res_.end(); }
+
+ private:
   vector<RE> res_;
 };
 
-class RESTree
-{
-public:
+void writeRESTInput(const vector<vector<TDPoint> >& input_data,
+                    const char* filepath);
+vector<RES> readRESTOutput(const char* filepath);
+vector<RES> runREST(const vector<vector<TDPoint> >& input_data);
+
+class RESTree {
+ public:
   RESTree(TDNet* net, const RES& res, const vector<TDPin*>& pins) {
     net_ = net;
     res_ = res;
@@ -124,6 +140,7 @@ public:
   }
 
   int numPins() const { return n_pins_; }
+  TDPin* getPin(int i) const { return pins_[i]; }
   int length() const { return length_; }
   int x(int i) const { return x_[i]; }
   int y(int i) const { return y_[i]; }
@@ -132,7 +149,9 @@ public:
   int y_low(int i) const { return y_low_[i]; }
   int y_high(int i) const { return y_high_[i]; }
 
-private:
+  const RES& getRES() const { return res_; }
+
+ private:
   TDNet* net_;
   RES res_;
   int n_pins_;
@@ -148,7 +167,7 @@ private:
 };
 
 class OverflowManager {
-public:
+ public:
   OverflowManager(int x_grid, int y_grid) {
     x_grid_ = x_grid;
     y_grid_ = y_grid;
@@ -176,7 +195,7 @@ public:
     return overflow;
   }
 
-  int  countVOverflow(int x, int yl, int yr) {
+  int countVOverflow(int x, int yl, int yr) {
     int overflow = 0;
     for (int y = yl; y < yr; y++) {
       if (vusage_map_[y][x] > vcapacity_map_[y][x]) {
@@ -186,19 +205,19 @@ public:
     return overflow;
   }
 
-  void changeVUsage(int x, int yl, int yh, int delta=1) {
+  void changeVUsage(int x, int yl, int yh, int delta = 1) {
     for (int y = yl; y < yh; y++) {
       vusage_map_[y][x] += delta;
     }
   }
 
-  void changeHUsage(int y, int xl, int xr, int delta=1) {
+  void changeHUsage(int y, int xl, int xr, int delta = 1) {
     for (int x = xl; x < xr; x++) {
       husage_map_[y][x] += delta;
     }
   }
 
-private:
+ private:
   int x_grid_;
   int y_grid_;
   vector<vector<int> > hcapacity_map_;
@@ -208,17 +227,17 @@ private:
 };
 
 class RESTreeAbstractEvaluator {
-public:
+ public:
   virtual double getCost(RESTree& tree) = 0;
 };
 
 class RESTreeLengthEvaluator : public RESTreeAbstractEvaluator {
-public:
+ public:
   double getCost(RESTree& tree) { return tree.length(); }
 };
 
 class RESTreeOverflowEvaluator : public RESTreeAbstractEvaluator {
-public:
+ public:
   RESTreeOverflowEvaluator(OverflowManager* overflow_manager) {
     overflow_manager_ = overflow_manager;
   }
@@ -241,13 +260,13 @@ public:
     return overflow;
   }
 
-private:
+ private:
   OverflowManager* overflow_manager_;
 };
 
 class ConverterNode {
-public:
-  ConverterNode(int index, int x, int y, bool is_pin, TDPin* pin=nullptr) {
+ public:
+  ConverterNode(int index, int x, int y, bool is_pin, TDPin* pin = nullptr) {
     index_ = index;
     x_ = x;
     y_ = y;
@@ -342,7 +361,7 @@ public:
     down_neighbors_.insert(down_neighbors_.begin(), neighbor);
   }
 
-private:
+ private:
   int index_;
   int x_;
   int y_;
@@ -354,12 +373,82 @@ private:
   vector<ConverterNode*> down_neighbors_;
 };
 
-class TreeConverter {
+enum class EdgeType { H2V_RIGHT, H2V_LEFT, V2H_UP, V2H_DOWN };
 
+class SteinerCandidate {
+ public:
+  SteinerCandidate(int gain, int x, int y, ConverterNode* node,
+                   ConverterNode* op_node1, ConverterNode* op_node2,
+                   EdgeType edge_type) {
+    update(gain, x, y, node, op_node1, op_node2, edge_type);
+  }
+
+  void update(int gain, int x, int y, ConverterNode* node,
+              ConverterNode* op_node1, ConverterNode* op_node2,
+              EdgeType edge_type) {
+    gain_ = gain;
+    x_ = x;
+    y_ = y;
+    node_ = node;
+    op_node1_ = op_node1;
+    op_node2_ = op_node2;
+    edge_type_ = edge_type;
+  }
+
+  int gain_;
+  int x_;
+  int y_;
+  ConverterNode* node_;
+  ConverterNode* op_node1_;
+  ConverterNode* op_node2_;
+  EdgeType edge_type_;
+};
+
+class CmpSteinerCandidate {
+ public:
+  bool operator()(const SteinerCandidate& a, const SteinerCandidate& b) {
+    return a.gain_ < b.gain_;
+  }
+};
+
+class SteinerNode {
+ public:
+};
+
+class SteinerGraph {
+ public:
+};
+
+class TreeConverter {
+ public:
+  TreeConverter(RESTree* tree) : restree_(tree) {}
+
+  void initializeNodes() {
+    nodes_.clear();
+    for (int i = 0; i < restree_->numPins(); i++) {
+      TDPin* pin = restree_->getPin(i);
+      ConverterNode* node = new ConverterNode(i, pin->x_, pin->y_, true, pin);
+      nodes_.push_back(node);
+    }
+  }
+
+  void initializeEdges() {
+    for (auto [nv, nh] : restree_->getRES()) {
+      ConverterNode* node_v = nodes_[nv];
+      ConverterNode* node_h = nodes_[nh];
+      node_v->addHorizontalNeighbor(node_h);
+      node_h->addVerticalNeighbor(node_v);
+    }
+  }
+
+  SteinerGraph* convertToSteinerGraph() { return nullptr; }
+
+  RESTree* restree_;
+  vector<ConverterNode*> nodes_;
 };
 
 class RESTreeDetourEvaluator : public RESTreeAbstractEvaluator {
-public:
+ public:
   double getCost(RESTree& tree) {
     int detour = 0;
     for (int i = 0; i < tree.numPins(); i++) {
@@ -369,8 +458,7 @@ public:
   }
 };
 
-class TimingDrivenSteinerTreeBuilder 
-{
+class TimingDrivenSteinerTreeBuilder {
  public:
   TimingDrivenSteinerTreeBuilder();
   ~TimingDrivenSteinerTreeBuilder();
@@ -385,6 +473,8 @@ class TimingDrivenSteinerTreeBuilder
                       const std::vector<double>& slack,
                       const std::vector<double>& arrival_time);
   void clearNets();
+  void printNets() const;
+  void printEdges() const;
   void buildSteinerTrees();
 
   Tree makeSteinerTree(odb::dbNet* net, const std::vector<int>& x,
@@ -401,4 +491,7 @@ class TimingDrivenSteinerTreeBuilder
   vector<vector<TDEdge> > v_edges_;
 };
 
-}
+void testRESTree();
+void testAll();
+
+}  // namespace stt
