@@ -144,6 +144,7 @@ class Distributed;
 }
 namespace stt {
 class SteinerTreeBuilder;
+class TimingDrivenSteinerTreeBuilder;
 }
 
 namespace dft {
@@ -194,6 +195,7 @@ class OpenRoad
   pad::ICeWall* getICeWall() { return icewall_; }
   dst::Distributed* getDistributed() { return distributer_; }
   stt::SteinerTreeBuilder* getSteinerTreeBuilder() { return stt_builder_; }
+  stt::TimingDrivenSteinerTreeBuilder* getTimingDrivenSteinerTreeBuilder() { return td_stt_builder_; }
   dft::Dft* getDft() { return dft_; }
 
   // Return the bounding box of the db rows.
@@ -282,6 +284,7 @@ class OpenRoad
   pad::ICeWall* icewall_ = nullptr;
   dst::Distributed* distributer_ = nullptr;
   stt::SteinerTreeBuilder* stt_builder_ = nullptr;
+  stt::TimingDrivenSteinerTreeBuilder* td_stt_builder_ = nullptr;
   dft::Dft* dft_ = nullptr;
 
   std::set<OpenRoadObserver*> observers_;

@@ -1482,8 +1482,6 @@ void FastRouteCore::gen_brk_ALLCPP() {
   }
 
   td_stt_builder_->buildSteinerTrees();
-
-  stt::testAll();
 }
 
 void FastRouteCore::writeTDInputFile(const char* filename,

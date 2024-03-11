@@ -146,6 +146,7 @@ class GlobalRouter : public ant::GlobalRouteSource
 
   void init(utl::Logger* logger,
             stt::SteinerTreeBuilder* stt_builder,
+            stt::TimingDrivenSteinerTreeBuilder* td_stt_builder,
             odb::dbDatabase* db,
             sta::dbSta* sta,
             rsz::Resizer* resizer,

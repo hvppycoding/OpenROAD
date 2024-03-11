@@ -37,6 +37,7 @@
 
 namespace stt {
 class SteinerTreeBuilder;
+class TimingDrivenSteinerTreeBuilder;
 }
 
 namespace ord {
@@ -44,9 +45,11 @@ namespace ord {
 class OpenRoad;
 
 stt::SteinerTreeBuilder* makeSteinerTreeBuilder();
+stt::TimingDrivenSteinerTreeBuilder* makeTimingDrivenSteinerTreeBuilder();
 
 void initSteinerTreeBuilder(OpenRoad* openroad);
 
 void deleteSteinerTreeBuilder(stt::SteinerTreeBuilder* stt_builder);
+void deleteTimingDrivenSteinerTreeBuilder(stt::TimingDrivenSteinerTreeBuilder* td_stt_builder);
 
 }  // namespace ord

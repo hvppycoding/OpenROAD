@@ -156,6 +156,7 @@ OpenRoad::~OpenRoad()
   deleteICeWall(icewall_);
   deleteDistributed(distributer_);
   deleteSteinerTreeBuilder(stt_builder_);
+  deleteTimingDrivenSteinerTreeBuilder(td_stt_builder_);
   dft::deleteDft(dft_);
   delete logger_;
 }
@@ -214,6 +215,7 @@ void OpenRoad::init(Tcl_Interp* tcl_interp)
   icewall_ = makeICeWall();
   distributer_ = makeDistributed();
   stt_builder_ = makeSteinerTreeBuilder();
+  td_stt_builder_ = makeTimingDrivenSteinerTreeBuilder();
   dft_ = dft::makeDft();
 
   // Init components.

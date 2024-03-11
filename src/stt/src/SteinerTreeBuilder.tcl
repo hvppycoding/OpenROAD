@@ -73,6 +73,10 @@ proc set_routing_alpha { args } {
   }
 }
 
+proc test_timing_driven_steiner_tree {} {
+  stt::test_timing_driven_steiner_tree_cmd
+}
+
 namespace eval stt {
 
 proc parse_net_names {cmd names} {

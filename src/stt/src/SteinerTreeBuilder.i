@@ -36,6 +36,7 @@
 %{
 
 #include "stt/SteinerTreeBuilder.h"
+#include "stt/TimingDrivenSteinerTreeBuilder.h"
 #include "LinesRenderer.h"
 #include "stt/pd.h"
 #include "stt/flute.h"
@@ -47,10 +48,12 @@
 namespace ord {
 // Defined in OpenRoad.i
 stt::SteinerTreeBuilder* getSteinerTreeBuilder();
+stt::TimingDrivenSteinerTreeBuilder* getTimingDrivenSteinerTreeBuilder();
 utl::Logger* getLogger();
 }  // namespace ord
 
 using ord::getSteinerTreeBuilder;
+using ord::getTimingDrivenSteinerTreeBuilder;
 using odb::dbNet;
 %}
 
@@ -155,6 +158,13 @@ highlight_flute_tree(std::vector<int> x,
   gui::Gui *gui = gui::Gui::get();
   stt::Tree tree = flt::flute(x, y, 3);
   stt::highlightSteinerTree(tree, gui);
+}
+
+void
+test_timing_driven_steiner_tree_cmd()
+{
+  TimingDrivenSteinerTreeBuilder* builder = getTimingDrivenSteinerTreeBuilder();
+  builder->runT
 }
 
 } // namespace

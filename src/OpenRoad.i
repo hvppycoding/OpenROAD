@@ -224,6 +224,13 @@ getSteinerTreeBuilder()
   return openroad->getSteinerTreeBuilder();
 }
 
+stt::TimingDrivenSteinerTreeBuilder*
+getTimingDrivenSteinerTreeBuilder()
+{
+  OpenRoad *openroad = getOpenRoad();
+  return openroad->getTimingDrivenSteinerTreeBuilder();
+}
+
 } // namespace ord
 
 namespace sta {

@@ -71,6 +71,7 @@ void initGlobalRouter(OpenRoad* openroad)
   openroad->getGlobalRouter()->init(
       openroad->getLogger(),
       openroad->getSteinerTreeBuilder(),
+      openroad->getTimingDrivenSteinerTreeBuilder(),
       openroad->getDb(),
       openroad->getSta(),
       openroad->getResizer(),

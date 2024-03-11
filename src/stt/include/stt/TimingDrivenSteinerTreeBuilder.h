@@ -83,11 +83,6 @@ class RES {
   vector<RE> res_;
 };
 
-void writeRESTInput(const vector<vector<TDPoint> >& input_data,
-                    const char* filepath);
-vector<RES> readRESTOutput(const char* filepath);
-vector<RES> runREST(const vector<vector<TDPoint> >& input_data);
-
 class RESTree {
  public:
   RESTree(TDNet* net, const RES& res, const vector<TDPin*>& pins) {
@@ -148,6 +143,18 @@ class RESTree {
   int x_high(int i) const { return x_high_[i]; }
   int y_low(int i) const { return y_low_[i]; }
   int y_high(int i) const { return y_high_[i]; }
+  string toString() const {
+    string s = "RESTree\n";
+    for (int i = 0; i < res_.count(); i++) {
+      RE re = res_.get(i);
+      s += "Edge " + std::to_string(re.first) + " -> " + std::to_string(re.second) + "\n";
+    }
+    for (int i = 0; i < n_pins_; i++) {
+      s += "Pin " + std::to_string(i) + " (" + std::to_string(x_[i]) + ", " +
+           std::to_string(y_[i]) + ")\n";
+    }
+    return s;
+  }
 
   const RES& getRES() const { return res_; }
 
@@ -480,6 +487,11 @@ class TimingDrivenSteinerTreeBuilder {
   Tree makeSteinerTree(odb::dbNet* net, const std::vector<int>& x,
                        const std::vector<int>& y, int drvr_index);
 
+  vector<RES> runREST(const vector<vector<TDPoint> >& input_data);
+  RESTree* generateRandomRESTree(int n_pins, int x_grid, int y_grid, double slack_mean, double slack_std);
+  void testRESTree();
+  void testAll();
+
  private:
   Logger* logger_;
   odb::dbDatabase* db_;
@@ -491,7 +503,6 @@ class TimingDrivenSteinerTreeBuilder {
   vector<vector<TDEdge> > v_edges_;
 };
 
-void testRESTree();
-void testAll();
+
 
 }  // namespace stt

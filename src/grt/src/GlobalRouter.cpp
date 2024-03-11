@@ -114,6 +114,7 @@ GlobalRouter::GlobalRouter()
 
 void GlobalRouter::init(utl::Logger* logger,
                         stt::SteinerTreeBuilder* stt_builder,
+                        stt::TimingDrivenSteinerTreeBuilder* td_stt_builder,
                         odb::dbDatabase* db, sta::dbSta* sta,
                         rsz::Resizer* resizer,
                         ant::AntennaChecker* antenna_checker,
@@ -124,8 +125,7 @@ void GlobalRouter::init(utl::Logger* logger,
   stt_builder_ = stt_builder;
   db_ = db;
   stt_builder_ = stt_builder;
-  td_stt_builder_ = new stt::TimingDrivenSteinerTreeBuilder();
-  td_stt_builder_->init(db_, logger_);
+  td_stt_builder_ = td_stt_builder;
   antenna_checker_ = antenna_checker;
   opendp_ = opendp;
   fastroute_ = new FastRouteCore(db_, logger_, stt_builder_, td_stt_builder_);

@@ -158,7 +158,7 @@ static std::string getCurrentTimeString() {
   return std::string(buffer);
 }
 
-void writeRESTInput(const vector<vector<TDPoint> >& input_data,
+static void writeRESTInput(const vector<vector<TDPoint> >& input_data,
                     const char* filepath) {
   std::ofstream out(filepath);
   assert(out);
@@ -170,7 +170,7 @@ void writeRESTInput(const vector<vector<TDPoint> >& input_data,
   }
 }
 
-vector<RES> readRESTOutput(const char* filepath) {
+static vector<RES> readRESTOutput(const char* filepath) {
   std::ifstream in(filepath);
   assert(in);
   string line;
@@ -190,13 +190,15 @@ vector<RES> readRESTOutput(const char* filepath) {
   return res;
 }
 
-vector<RES> runREST(const vector<vector<TDPoint> >& input_data) {
+vector<RES> TimingDrivenSteinerTreeBuilder::runREST(const vector<vector<TDPoint> >& input_data) {
   char cmd[1024];
-  string results_dir = getenv("RESULTS_DIR");
+  logger_->report("Running REST");
+  const char* results_dir_ = getenv("RESULTS_DIR");
+  std::string results_dir = results_dir_ ? results_dir_ : ".";
   string temp_dir = results_dir + "/temp";
   sprintf(cmd, "mkdir -p %s", temp_dir.c_str());
+  logger_->report("Running command: {}", cmd);
   system(cmd);
-
   std::string current_time = getCurrentTimeString();
   string input_file = temp_dir + "/rest_input" + current_time + ".txt";
   writeRESTInput(input_data, input_file.c_str());
@@ -204,16 +206,15 @@ vector<RES> runREST(const vector<vector<TDPoint> >& input_data) {
   string command_str = "runrest";
   command_str += " " + input_file;
   command_str += " --output " + output_file;
-
   system(command_str.c_str());
   vector<RES> res = readRESTOutput(output_file.c_str());
   assert(res.size() == input_data.size());
   return res;
 }
 
-RESTree* generateRandomRESTree(int n_pins = 10, int x_grid = 10,
+RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(int n_pins = 10, int x_grid = 10,
                                int y_grid = 10, double slack_mean = 0.0,
-                               double slack_std = 0.0) {
+                               double slack_std = 1.0) {
   std::random_device rd;
   std::mt19937 gen(rd());
 
@@ -271,12 +272,15 @@ RESTree* generateRandomRESTree(int n_pins = 10, int x_grid = 10,
   return res_tree;
 }
 
-void testRESTree() {
+void TimingDrivenSteinerTreeBuilder::testRESTree() {
+  logger_->report("Hello");
   RESTree* res_tree = generateRandomRESTree();
+  string str = res_tree->toString();
+  logger_->report("Generated RESTree: {}", str);
   delete res_tree;
 }
 
-void testAll() {
+void TimingDrivenSteinerTreeBuilder::testAll() {
   testRESTree();
 }
 
