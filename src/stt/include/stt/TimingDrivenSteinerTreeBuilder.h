@@ -1,5 +1,7 @@
 #pragma once
 
+#include <boost/heap/d_ary_heap.hpp>
+#include <deque>
 #include <map>
 #include <vector>
 
@@ -28,7 +30,7 @@ using utl::Logger;
 
 class TDPoint {
  public:
-  TDPoint(): x_(0), y_(0) {}
+  TDPoint() : x_(0), y_(0) {}
   TDPoint(int x, int y) : x_(x), y_(y) {}
   int x_;
   int y_;
@@ -143,16 +145,23 @@ class RESTree {
   int x_high(int i) const { return x_high_[i]; }
   int y_low(int i) const { return y_low_[i]; }
   int y_high(int i) const { return y_high_[i]; }
+  int driverIndex() const { return driver_index_; }
   string toString() const {
     string s = "RESTree\n";
-    for (int i = 0; i < res_.count(); i++) {
-      RE re = res_.get(i);
-      s += "Edge " + std::to_string(re.first) + " -> " + std::to_string(re.second) + "\n";
-    }
     for (int i = 0; i < n_pins_; i++) {
       s += "Pin " + std::to_string(i) + " (" + std::to_string(x_[i]) + ", " +
-           std::to_string(y_[i]) + ")\n";
+           std::to_string(y_[i]) + ")";
+      if (i == driver_index_) {
+        s += " (driver)";
+      }
+      s += "\n";
     }
+    for (int i = 0; i < res_.count(); i++) {
+      RE re = res_.get(i);
+      s += "Edge " + std::to_string(re.first) + " -> " +
+           std::to_string(re.second) + "\n";
+    }
+
     return s;
   }
 
@@ -224,23 +233,36 @@ class OverflowManager {
     }
   }
 
+  static OverflowManager* createRandom(int nx, int ny) {
+    OverflowManager* overflow_manager = new OverflowManager(nx, ny);
+    for (int y = 0; y < ny; y++) {
+      for (int x = 0; x < nx; x++) {
+        overflow_manager->setVCapacity(x, y, rand() % 10);
+        overflow_manager->changeVUsage(x, y, y + 1, rand() % 10);
+        overflow_manager->setHCapacity(x, y, rand() % 10);
+        overflow_manager->changeHUsage(y, x, x + 1, rand() % 10);
+      }
+    }
+    return overflow_manager;
+  }
+
  private:
   int x_grid_;
   int y_grid_;
-  vector<vector<int> > hcapacity_map_;
-  vector<vector<int> > vcapacity_map_;
-  vector<vector<int> > husage_map_;
-  vector<vector<int> > vusage_map_;
+  vector<vector<int>> hcapacity_map_;
+  vector<vector<int>> vcapacity_map_;
+  vector<vector<int>> husage_map_;
+  vector<vector<int>> vusage_map_;
 };
 
 class RESTreeAbstractEvaluator {
  public:
-  virtual double getCost(RESTree& tree) = 0;
+  virtual double getCost(RESTree* tree) = 0;
 };
 
 class RESTreeLengthEvaluator : public RESTreeAbstractEvaluator {
  public:
-  double getCost(RESTree& tree) { return tree.length(); }
+  double getCost(RESTree* tree) { return tree->length(); }
 };
 
 class RESTreeOverflowEvaluator : public RESTreeAbstractEvaluator {
@@ -248,20 +270,20 @@ class RESTreeOverflowEvaluator : public RESTreeAbstractEvaluator {
   RESTreeOverflowEvaluator(OverflowManager* overflow_manager) {
     overflow_manager_ = overflow_manager;
   }
-  double getCost(RESTree& tree) {
+  double getCost(RESTree* tree) {
     int overflow = 0;
 
-    for (int i = 0; i < tree.numPins(); i++) {
-      int y = tree.y(i);
-      int x_low = tree.x_low(i);
-      int x_high = tree.x_high(i);
+    for (int i = 0; i < tree->numPins(); i++) {
+      int y = tree->y(i);
+      int x_low = tree->x_low(i);
+      int x_high = tree->x_high(i);
       overflow += overflow_manager_->countHOverflow(y, x_low, x_high);
     }
 
-    for (int i = 0; i < tree.numPins(); i++) {
-      int x = tree.x(i);
-      int y_low = tree.y_low(i);
-      int y_high = tree.y_high(i);
+    for (int i = 0; i < tree->numPins(); i++) {
+      int x = tree->x(i);
+      int y_low = tree->y_low(i);
+      int y_high = tree->y_high(i);
       overflow += overflow_manager_->countVOverflow(x, y_low, y_high);
     }
     return overflow;
@@ -368,6 +390,26 @@ class ConverterNode {
     down_neighbors_.insert(down_neighbors_.begin(), neighbor);
   }
 
+  const vector<ConverterNode*>& getRightNeighbors() const {
+    return right_neighbors_;
+  }
+
+  const vector<ConverterNode*>& getLeftNeighbors() const {
+    return left_neighbors_;
+  }
+
+  const vector<ConverterNode*>& getUpNeighbors() const { return up_neighbors_; }
+
+  const vector<ConverterNode*>& getDownNeighbors() const {
+    return down_neighbors_;
+  }
+
+  int index() const { return index_; }
+  int x() const { return x_; }
+  int y() const { return y_; }
+  bool isPin() const { return is_pin_; }
+  TDPin* pin() const { return pin_; }
+
  private:
   int index_;
   int x_;
@@ -380,7 +422,7 @@ class ConverterNode {
   vector<ConverterNode*> down_neighbors_;
 };
 
-enum class EdgeType { H2V_RIGHT, H2V_LEFT, V2H_UP, V2H_DOWN };
+enum class EdgeType { H2V_RIGHT, H2V_LEFT, V2H_UP, V2H_DOWN, UNKNOWN };
 
 class SteinerCandidate {
  public:
@@ -413,17 +455,81 @@ class SteinerCandidate {
 
 class CmpSteinerCandidate {
  public:
-  bool operator()(const SteinerCandidate& a, const SteinerCandidate& b) {
+  bool operator()(const SteinerCandidate& a, const SteinerCandidate& b) const {
     return a.gain_ < b.gain_;
   }
 };
 
 class SteinerNode {
  public:
+  SteinerNode(int index, int x, int y, bool is_pin, TDPin* pin = nullptr) {
+    index_ = index;
+    x_ = x;
+    y_ = y;
+    is_pin_ = is_pin;
+    pin_ = pin;
+  }
+
+  int index() const { return index_; }
+  int x() const { return x_; }
+  int y() const { return y_; }
+  void addNeighbor(SteinerNode* neighbor) { neighbors_.push_back(neighbor); }
+  void removeNeighbor(SteinerNode* neighbor) {
+    neighbors_.erase(
+        std::remove(neighbors_.begin(), neighbors_.end(), neighbor),
+        neighbors_.end());
+  }
+  SteinerNode* getNeighbor(int i) const { return neighbors_[i]; }
+  vector<SteinerNode*> getNeighbors() const { return neighbors_; }
+  bool isNeighbor(SteinerNode* neighbor) const {
+    return std::find(neighbors_.begin(), neighbors_.end(), neighbor) !=
+           neighbors_.end();
+  }
+  int countNeighbors() const { return neighbors_.size(); }
+  void clearNeighbors() { neighbors_.clear(); }
+
+  int index_;
+  int x_;
+  int y_;
+  bool is_pin_;
+  TDPin* pin_;
+  vector<SteinerNode*> neighbors_;
 };
 
 class SteinerGraph {
  public:
+  SteinerGraph(vector<SteinerNode*> nodes) : nodes_(nodes) {}
+  ~SteinerGraph() {
+    for (SteinerNode* node : nodes_) {
+      delete node;
+    }
+  }
+
+  vector<SteinerNode*> nodes() const { return nodes_; }
+  SteinerNode* getNode(int i) { return nodes_[i]; }
+  int nodeCount() const { return nodes_.size(); }
+  void addNode(SteinerNode* node) { nodes_.push_back(node); }
+
+  string toString() const {
+    string s = "SteinerGraph\n";
+    for (SteinerNode* node : nodes_) {
+      s += "Node " + std::to_string(node->index()) + " (" +
+           std::to_string(node->x()) + ", " + std::to_string(node->y()) + ")";
+      if (node->is_pin_) {
+        s += " (pin)";
+      }
+      s += "\n";
+      for (SteinerNode* neighbor : node->getNeighbors()) {
+        s += "  Neighbor " + std::to_string(neighbor->index()) + " (" +
+             std::to_string(neighbor->x()) + ", " +
+             std::to_string(neighbor->y()) + ")\n";
+      }
+    }
+    return s;
+  }
+
+ private:
+  vector<SteinerNode*> nodes_;
 };
 
 class TreeConverter {
@@ -443,12 +549,278 @@ class TreeConverter {
     for (auto [nv, nh] : restree_->getRES()) {
       ConverterNode* node_v = nodes_[nv];
       ConverterNode* node_h = nodes_[nh];
-      node_v->addHorizontalNeighbor(node_h);
-      node_h->addVerticalNeighbor(node_v);
+      node_v->addVerticalNeighbor(node_h);
+      node_h->addHorizontalNeighbor(node_v);
     }
   }
 
-  SteinerGraph* convertToSteinerGraph() { return nullptr; }
+  SteinerCandidate bestSteinerForNode(ConverterNode* node) {
+    SteinerCandidate best(/* gain= */ 0,
+                          /* x= */ 0,
+                          /* y= */ 0,
+                          /* node= */ nullptr,
+                          /* op1= */ nullptr,
+                          /* op2= */ nullptr,
+                          /* edge_type= */ EdgeType::UNKNOWN);
+    int gain = 0;
+    ConverterNode* op1 = nullptr;
+    ConverterNode* op2 = nullptr;
+
+    if (node->getRightNeighbors().size() >= 2) {
+      int n = node->getRightNeighbors().size();
+      op1 = node->getRightNeighbors()[n - 1];
+      op2 = node->getRightNeighbors()[n - 2];
+      gain = op2->x() - node->x();
+      if (gain > best.gain_) {
+        best.update(gain, op2->x(), node->y(), node, op1, op2,
+                    EdgeType::H2V_RIGHT);
+      }
+    }
+
+    if (node->getLeftNeighbors().size() >= 2) {
+      int n = node->getLeftNeighbors().size();
+      op1 = node->getLeftNeighbors()[n - 1];
+      op2 = node->getLeftNeighbors()[n - 2];
+      gain = node->x() - op2->x();
+      if (gain > best.gain_) {
+        best.update(gain, op2->x(), node->y(), node, op1, op2,
+                    EdgeType::H2V_LEFT);
+      }
+    }
+
+    if (node->getUpNeighbors().size() >= 2) {
+      int n = node->getUpNeighbors().size();
+      op1 = node->getUpNeighbors()[n - 1];
+      op2 = node->getUpNeighbors()[n - 2];
+      gain = op2->y() - node->y();
+      if (gain > best.gain_) {
+        best.update(gain, node->x(), op2->y(), node, op1, op2,
+                    EdgeType::V2H_UP);
+      }
+    }
+
+    if (node->getDownNeighbors().size() >= 2) {
+      int n = node->getDownNeighbors().size();
+      op1 = node->getDownNeighbors()[n - 1];
+      op2 = node->getDownNeighbors()[n - 2];
+      gain = node->y() - op2->y();
+      if (gain > best.gain_) {
+        best.update(gain, node->x(), op2->y(), node, op1, op2,
+                    EdgeType::V2H_DOWN);
+      }
+    }
+
+    return best;
+  }
+
+  void steinerize() {
+    using Heap =
+        boost::heap::d_ary_heap<SteinerCandidate, boost::heap::mutable_<true>,
+                                boost::heap::arity<2>,
+                                boost::heap::compare<CmpSteinerCandidate>>;
+    Heap heap;
+    std::map<ConverterNode*, Heap::handle_type> handles;
+
+    for (ConverterNode* node : nodes_) {
+      handles[node] = heap.push(bestSteinerForNode(node));
+    }
+
+    while (!heap.empty()) {
+      const SteinerCandidate best = heap.top();
+      heap.pop();
+
+      if (best.gain_ <= 0) {
+        break;
+      }
+
+      ConverterNode* node = best.node_;
+      ConverterNode* op1 = best.op_node1_;
+      ConverterNode* op2 = best.op_node2_;
+
+      bool new_node = false;
+      ConverterNode* steiner_node = nullptr;
+
+      if (best.x_ == op2->x() && best.y_ == op2->y()) {
+        steiner_node = op2;
+      } else if (best.x_ == op1->x() && best.y_ == op1->y()) {
+        steiner_node = op1;
+      } else {
+        steiner_node =
+            new ConverterNode(nodes_.size(), best.x_, best.y_, false);
+        nodes_.push_back(steiner_node);
+        new_node = true;
+      }
+
+      if (best.edge_type_ == EdgeType::V2H_UP ||
+          best.edge_type_ == EdgeType::V2H_DOWN) {
+        if (steiner_node != op1) {
+          op1->removeNeighbor(node);
+          op1->addHorizontalNeighbor(steiner_node);
+          steiner_node->addVerticalNeighbor(op1);
+          node->removeNeighbor(op1);
+        }
+        if (steiner_node != op2) {
+          op2->removeNeighbor(node);
+          op2->addHorizontalNeighbor(steiner_node);
+          steiner_node->addVerticalNeighbor(op2);
+          node->removeNeighbor(op2);
+        }
+        if (new_node) {
+          node->addVerticalNeighbor(steiner_node);
+          steiner_node->addHorizontalNeighbor(node);
+          SteinerCandidate new_best_steiner = bestSteinerForNode(steiner_node);
+          handles[steiner_node] = heap.push(new_best_steiner);
+        }
+      } else {
+        if (steiner_node != op1) {
+          op1->removeNeighbor(node);
+          op1->addVerticalNeighbor(steiner_node);
+          steiner_node->addHorizontalNeighbor(op1);
+          node->removeNeighbor(op1);
+        }
+        if (steiner_node != op2) {
+          op2->removeNeighbor(node);
+          op2->addVerticalNeighbor(steiner_node);
+          steiner_node->addHorizontalNeighbor(op2);
+          node->removeNeighbor(op2);
+        }
+        if (new_node) {
+          node->addHorizontalNeighbor(steiner_node);
+          steiner_node->addVerticalNeighbor(node);
+          SteinerCandidate new_best_steiner = bestSteinerForNode(steiner_node);
+          handles[steiner_node] = heap.push(new_best_steiner);
+        }
+      }
+
+      SteinerCandidate new_best_node = bestSteinerForNode(node);
+      handles[node] = heap.push(new_best_node);
+
+      *handles[op1] = bestSteinerForNode(op1);
+      heap.update(handles[op1]);
+      *handles[op2] = bestSteinerForNode(op2);
+      heap.update(handles[op2]);
+    }
+  }
+
+  SteinerGraph* makeSteinerGraph() {
+    vector<SteinerNode*> graph_nodes;
+    map<ConverterNode*, SteinerNode*> node_map;
+
+    for (ConverterNode* node : nodes_) {
+      SteinerNode* graph_node = new SteinerNode(
+          node->index(), node->x(), node->y(), node->isPin(), node->pin());
+      graph_nodes.push_back(graph_node);
+      node_map[node] = graph_node;
+    }
+
+    for (auto [node, graph_node] : node_map) {
+      for (ConverterNode* neighbor : node->getRightNeighbors()) {
+        graph_node->addNeighbor(node_map[neighbor]);
+      }
+      for (ConverterNode* neighbor : node->getLeftNeighbors()) {
+        graph_node->addNeighbor(node_map[neighbor]);
+      }
+      for (ConverterNode* neighbor : node->getUpNeighbors()) {
+        graph_node->addNeighbor(node_map[neighbor]);
+      }
+      for (ConverterNode* neighbor : node->getDownNeighbors()) {
+        graph_node->addNeighbor(node_map[neighbor]);
+      }
+    }
+
+    return new SteinerGraph(graph_nodes);
+  }
+
+  void splitDegree4Nodes(SteinerGraph* graph) {
+    deque<SteinerNode*> nodes_to_split;
+    for (SteinerNode* node : graph->nodes()) {
+      nodes_to_split.push_back(node);
+    }
+
+    while (!nodes_to_split.empty()) {
+      SteinerNode* node = nodes_to_split.front();
+      nodes_to_split.pop_front();
+      if (node->neighbors_.size() <= 3) {
+        continue;
+      }
+
+      SteinerNode* new_node = new SteinerNode(/*index=*/graph->nodeCount(),
+                                              /*x=*/node->x(),
+                                              /*y=*/node->y(),
+                                              /*is_pin=*/false);
+      graph->addNode(new_node);
+
+      vector<SteinerNode*> next_neighbors;
+      for (int i = 0; node->countNeighbors(); i++) {
+        SteinerNode* neighbor = node->getNeighbor(i);
+        if (i <= 1) {
+          next_neighbors.push_back(neighbor);
+          continue;
+        }
+
+        if (neighbor->isNeighbor(node)) {
+          neighbor->removeNeighbor(node);
+        }
+        neighbor->addNeighbor(new_node);
+        new_node->addNeighbor(neighbor);
+      }
+
+      node->clearNeighbors();
+      for (SteinerNode* neighbor : next_neighbors) {
+        node->addNeighbor(neighbor);
+      }
+      node->addNeighbor(new_node);
+      new_node->addNeighbor(node);
+      nodes_to_split.push_back(new_node);
+    }
+  }
+
+  SteinerGraph* convertToSteinerGraph() {
+    initializeNodes();
+    initializeEdges();
+    steinerize();
+    return makeSteinerGraph();
+  }
+
+  int runDFS(SteinerNode* node, map<int, int>& parent_map) {
+    int length = 0;
+    for (SteinerNode* neighbor : node->getNeighbors()) {
+      if (parent_map.find(neighbor->index()) == parent_map.end()) {
+        parent_map[neighbor->index()] = node->index();
+        length +=
+            abs(neighbor->x() - node->x()) + abs(neighbor->y() - node->y());
+        length += runDFS(neighbor, parent_map);
+      }
+    }
+    return length;
+  }
+
+  Tree convertToSteinerTree() {
+    SteinerGraph* graph = convertToSteinerGraph();
+    splitDegree4Nodes(graph);
+    map<int, int> parent_map;
+    int driver_index = restree_->driverIndex();
+    SteinerNode* start_node = graph->getNode(driver_index);
+    parent_map[start_node->index()] = start_node->index();
+    int length = runDFS(start_node, parent_map);
+    vector<Branch> branches;
+    for (int i = 0; i < graph->nodeCount(); i++) {
+      SteinerNode* node = graph->getNode(i);
+      Branch branch;
+      branch.x = node->x();
+      branch.y = node->y();
+      branch.n = parent_map[node->index()];
+      branches.push_back(branch);
+    }
+
+    Tree tree;
+    tree.deg = restree_->numPins();
+    tree.length = length;
+    tree.branch = branches;
+
+    delete graph;
+    return tree;
+  }
 
   RESTree* restree_;
   vector<ConverterNode*> nodes_;
@@ -456,12 +828,70 @@ class TreeConverter {
 
 class RESTreeDetourEvaluator : public RESTreeAbstractEvaluator {
  public:
-  double getCost(RESTree& tree) {
-    int detour = 0;
-    for (int i = 0; i < tree.numPins(); i++) {
-      detour += tree.x_high(i) - tree.x_low(i) + tree.y_high(i) - tree.y_low(i);
+  double getWeight(TDPin* pin) {
+    double slack = pin->slack_;
+    if (slack <= -10E-12) {
+      return slack / -10E-12;
+    } else if (slack <= 10E-12) {
+      return 1.0;
+    } else if (slack <= 30E-12) {
+      return 1.0 - (slack - 10E-12) / 20E-12 * 0.8;
+    } else {
+      return 0.2;
     }
-    return detour;
+  }
+
+  double getCost(RESTree* tree) { 
+    map<int, int> manhattan_distances = calculateManhattanDistancesFromDriver(tree);
+    map<int, int> pathlengths = calculatePathlengthsFromDriver(tree);
+    double total_detour_cost = 0;
+    for (int i = 0; i < tree->numPins(); i++) {
+      TDPin* pin = tree->getPin(i);
+      double weight = getWeight(pin);
+      int detour = pathlengths[i] - manhattan_distances[i];
+      double detour_cost = weight * detour;
+      total_detour_cost += detour_cost;
+    }
+    return total_detour_cost;
+  }
+
+  map<int, int> calculateManhattanDistancesFromDriver(RESTree* tree) {
+    map<int, int> distances;
+    int drv_x = tree->x(tree->driverIndex());
+    int drv_y = tree->y(tree->driverIndex());
+    for (int i = 0; i < tree->numPins(); i++) {
+      int x = tree->x(i);
+      int y = tree->y(i);
+      distances[i] = abs(x - drv_x) + abs(y - drv_y);
+    }
+    return distances;
+  }
+
+  map<int, int> calculatePathlengthsFromDriver(RESTree* tree) {
+    SteinerGraph* graph = TreeConverter(tree).convertToSteinerGraph();
+    int driver_index = tree->driverIndex();
+    SteinerNode* driver_node = graph->getNode(driver_index);
+
+    map<int, int> pathlengths;
+    calculatePathlengthsFromDriverHelper(driver_node, 0, pathlengths);
+    for (int i = tree->numPins(); i < graph->nodeCount(); i++) {
+      pathlengths.erase(i);
+    }
+    return pathlengths;
+  }
+
+  void calculatePathlengthsFromDriverHelper(SteinerNode* node, int length,
+                                            map<int, int>& pathlengths) {
+    pathlengths[node->index()] = length;
+
+    for (SteinerNode* neighbor : node->getNeighbors()) {
+      if (pathlengths.find(neighbor->index()) == pathlengths.end()) {
+        int additional_length =
+            abs(neighbor->x() - node->x()) + abs(neighbor->y() - node->y());
+        int new_length = length + additional_length;
+        calculatePathlengthsFromDriverHelper(neighbor, new_length, pathlengths);
+      }
+    }
   }
 };
 
@@ -487,9 +917,11 @@ class TimingDrivenSteinerTreeBuilder {
   Tree makeSteinerTree(odb::dbNet* net, const std::vector<int>& x,
                        const std::vector<int>& y, int drvr_index);
 
-  vector<RES> runREST(const vector<vector<TDPoint> >& input_data);
-  RESTree* generateRandomRESTree(int n_pins, int x_grid, int y_grid, double slack_mean, double slack_std);
-  void testRESTree();
+  vector<RES> runREST(const vector<vector<TDPoint>>& input_data);
+  RESTree* generateRandomRESTree(int n_pins, int x_grid, int y_grid,
+                                 double slack_mean, double slack_std);
+  Tree testRESTree();
+  void testEvaluators();
   void testAll();
 
  private:
@@ -499,10 +931,8 @@ class TimingDrivenSteinerTreeBuilder {
   int x_grid_;
   int y_grid_;
   std::map<odb::dbNet*, TDNet*> net_map_;
-  vector<vector<TDEdge> > h_edges_;
-  vector<vector<TDEdge> > v_edges_;
+  vector<vector<TDEdge>> h_edges_;
+  vector<vector<TDEdge>> v_edges_;
 };
-
-
 
 }  // namespace stt

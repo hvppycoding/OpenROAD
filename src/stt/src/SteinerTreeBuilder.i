@@ -161,10 +161,16 @@ highlight_flute_tree(std::vector<int> x,
 }
 
 void
-test_timing_driven_steiner_tree_cmd()
+test_timing_driven_steiner_tree_cmd(int tc)
 {
   TimingDrivenSteinerTreeBuilder* builder = getTimingDrivenSteinerTreeBuilder();
-  builder->runT
+  if (tc == 0) {
+    builder->testAll();
+  } else if (tc == 1) {
+    Tree tree = builder->testRESTree();
+  } else if (tc == 2) {
+    builder->testEvaluators();
+  }
 }
 
 } // namespace

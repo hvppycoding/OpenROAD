@@ -1,15 +1,28 @@
 #include "stt/TimingDrivenSteinerTreeBuilder.h"
 
-#include <map>
-#include <random>
-#include <string>
 #include <ctime>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <random>
+#include <string>
 
 #include "odb/db.h"
 
 namespace stt {
+
+static void reportSteinerBranches(const stt::Tree& tree, Logger* logger) {
+  for (int i = 0; i < tree.branchCount(); i++) {
+    int x1 = tree.branch[i].x;
+    int y1 = tree.branch[i].y;
+    int parent = tree.branch[i].n;
+    int x2 = tree.branch[parent].x;
+    int y2 = tree.branch[parent].y;
+    int length = abs(x1 - x2) + abs(y1 - y2);
+    logger->report("{} ({} {}) neighbor {} length {}", i, x1, y1, parent,
+                   length);
+  }
+}
 
 void RES::initialize_from_1d(const vector<int>& res) {
   assert(res.size() % 2 == 0);
@@ -159,7 +172,7 @@ static std::string getCurrentTimeString() {
 }
 
 static void writeRESTInput(const vector<vector<TDPoint> >& input_data,
-                    const char* filepath) {
+                           const char* filepath) {
   std::ofstream out(filepath);
   assert(out);
   for (int i = 0; i < input_data.size(); i++) {
@@ -190,7 +203,8 @@ static vector<RES> readRESTOutput(const char* filepath) {
   return res;
 }
 
-vector<RES> TimingDrivenSteinerTreeBuilder::runREST(const vector<vector<TDPoint> >& input_data) {
+vector<RES> TimingDrivenSteinerTreeBuilder::runREST(
+    const vector<vector<TDPoint> >& input_data) {
   char cmd[1024];
   logger_->report("Running REST");
   const char* results_dir_ = getenv("RESULTS_DIR");
@@ -212,9 +226,9 @@ vector<RES> TimingDrivenSteinerTreeBuilder::runREST(const vector<vector<TDPoint>
   return res;
 }
 
-RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(int n_pins = 10, int x_grid = 10,
-                               int y_grid = 10, double slack_mean = 0.0,
-                               double slack_std = 1.0) {
+RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(
+    int n_pins = 6, int x_grid = 10, int y_grid = 10, double slack_mean = 0.0,
+    double slack_std = 0.0) {
   std::random_device rd;
   std::mt19937 gen(rd());
 
@@ -223,12 +237,21 @@ RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(int n_pins = 10, 
   vector<double> slacks;
   std::uniform_int_distribution<> dis_x(0, x_grid - 1);
   std::uniform_int_distribution<> dis_y(0, y_grid - 1);
-  std::normal_distribution<> dis_slack(slack_mean, slack_std);
 
   for (int i = 0; i < n_pins; i++) {
     xs.push_back(dis_x(gen));
     ys.push_back(dis_y(gen));
-    slacks.push_back(dis_slack(gen));
+  }
+
+  if (slack_std == 0) {
+    for (int i = 0; i < n_pins; i++) {
+      slacks.push_back(slack_mean);
+    }
+  } else {
+    std::normal_distribution<> dis_slack(slack_mean, slack_std);
+    for (int i = 0; i < n_pins; i++) {
+      slacks.push_back(dis_slack(gen));
+    }
   }
 
   vector<TDPin*> pins;
@@ -272,16 +295,39 @@ RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(int n_pins = 10, 
   return res_tree;
 }
 
-void TimingDrivenSteinerTreeBuilder::testRESTree() {
+Tree TimingDrivenSteinerTreeBuilder::testRESTree() {
   logger_->report("Hello");
   RESTree* res_tree = generateRandomRESTree();
   string str = res_tree->toString();
   logger_->report("Generated RESTree: {}", str);
-  delete res_tree;
+
+  TreeConverter* tree_converter = new TreeConverter(res_tree);
+  SteinerGraph* graph = tree_converter->convertToSteinerGraph();
+  logger_->report("Generated SteinerGraph: {}", graph->toString());
+  delete graph;
+
+  TreeConverter* tree_converter2 = new TreeConverter(res_tree);
+  Tree tree = tree_converter2->convertToSteinerTree();
+  reportSteinerBranches(tree, logger_);
+  return tree;
 }
 
-void TimingDrivenSteinerTreeBuilder::testAll() {
-  testRESTree();
+void TimingDrivenSteinerTreeBuilder::testEvaluators() {
+  OverflowManager* overflow_manager = OverflowManager::createRandom(20, 20);
+
+  RESTreeDetourEvaluator* detour = new RESTreeDetourEvaluator();
+  RESTreeLengthEvaluator* length = new RESTreeLengthEvaluator();
+  RESTreeOverflowEvaluator* overflow = new RESTreeOverflowEvaluator(overflow_manager);
+
+  RESTree* res_tree = generateRandomRESTree();
+  string str = res_tree->toString();
+  logger_->report("Generated RESTree: {}", str);
+
+  logger_->report("Detour: {}", detour->getCost(res_tree));
+  logger_->report("Length: {}", length->getCost(res_tree));
+  logger_->report("Overflow: {}", overflow->getCost(res_tree));
 }
+
+void TimingDrivenSteinerTreeBuilder::testAll() { testRESTree(); }
 
 }  // namespace stt

@@ -73,8 +73,13 @@ proc set_routing_alpha { args } {
   }
 }
 
-proc test_timing_driven_steiner_tree {} {
-  stt::test_timing_driven_steiner_tree_cmd
+proc test_timing_driven_steiner_tree { args } {
+  if { [llength $args] == 0 } {
+    stt::test_timing_driven_steiner_tree_cmd 0
+  } else {
+    set tc [lindex $args 0]
+    stt::test_timing_driven_steiner_tree_cmd $tc
+  }
 }
 
 namespace eval stt {
