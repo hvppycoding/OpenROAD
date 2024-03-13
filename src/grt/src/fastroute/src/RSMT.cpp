@@ -1477,8 +1477,8 @@ void FastRouteCore::gen_brk_ALLCPP() {
       arrival_time.push_back(pin.arrivalTime());
     }
     td_stt_builder_->addOrUpdateNet(net->getDbNet(), net->getPinX(),
-                                    net->getPinY(), net->getDriverIdx(), slack,
-                                    arrival_time);
+                                    net->getPinY(), net->isClock(),
+                                    net->getDriverIdx(), slack, arrival_time);
   }
 
   td_stt_builder_->buildSteinerTrees();

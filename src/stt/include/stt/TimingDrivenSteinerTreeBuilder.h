@@ -4,7 +4,9 @@
 #include <deque>
 #include <map>
 #include <vector>
+#include <numeric>
 
+#include "odb/geom.h"
 #include "stt/SteinerTreeBuilder.h"
 #include "utl/Logger.h"
 
@@ -25,8 +27,51 @@ class Gui;
 
 namespace stt {
 
+using odb::Point;
 using stt::Tree;
 using utl::Logger;
+
+class UnionFind {
+ private:
+  std::vector<int> parent, rank;
+
+ public:
+  // Constructor
+  UnionFind(int size) : parent(size), rank(size, 0) {
+    for (int i = 0; i < size; i++) {
+      parent[i] = i;  // Initially, every element is its own parent.
+    }
+  }
+
+  // Find the root of the set in which element 'p' belongs
+  int find(int p) {
+    while (p != parent[p]) {
+      parent[p] = parent[parent[p]];  // Path compression
+      p = parent[p];
+    }
+    return p;
+  }
+
+  // Unite the sets containing elements 'p' and 'q'
+  void unite(int p, int q) {
+    int rootP = find(p);
+    int rootQ = find(q);
+    if (rootP == rootQ) return;  // They are already in the same set
+
+    // Make the root of the smaller rank point to the root of the larger rank
+    if (rank[rootP] < rank[rootQ]) {
+      parent[rootP] = rootQ;
+    } else if (rank[rootP] > rank[rootQ]) {
+      parent[rootQ] = rootP;
+    } else {
+      parent[rootQ] = rootP;
+      rank[rootP]++;
+    }
+  }
+
+  // Check if the elements 'p' and 'q' are in the same set
+  bool connected(int p, int q) { return find(p) == find(q); }
+};
 
 class TDPoint {
  public:
@@ -48,12 +93,14 @@ class TDPin {
 class TDNet {
  public:
   const odb::dbNet* dbnet_;
+  bool is_clock_;
   int n_pins_;
   std::vector<int> x_;
   std::vector<int> y_;
   int driver_index_;
   std::vector<double> slack_;
   std::vector<double> arrival_time_;
+  std::vector<TDPin*> pins_;
 };
 
 class TDEdge {
@@ -75,6 +122,9 @@ class RES {
   void initialize_from_1d(const vector<int>& res);
   RE get(int i) const { return res_[i]; }
   int count() const { return res_.size(); }
+  void add(int i, int j) { res_.push_back(std::make_pair(i, j)); }
+  void add(const RE& re) { res_.push_back(re); }
+  void erase(int i) { res_.erase(res_.begin() + i, res_.begin() + i + 1); }
 
   std::vector<RE>::iterator begin() { return res_.begin(); }
   std::vector<RE>::iterator end() { return res_.end(); }
@@ -87,18 +137,23 @@ class RES {
 
 class RESTree {
  public:
-  RESTree(TDNet* net, const RES& res, const vector<TDPin*>& pins) {
+  RESTree(TDNet* net, const RES& res) {
     net_ = net;
     res_ = res;
-    pins_ = pins;
-    n_pins_ = pins.size();
+    pins_ = net->pins_;
+    n_pins_ = pins_.size();
     driver_index_ = -1;
-    for (int i = 0; i < pins.size(); i++) {
-      if (pins[i]->is_driver_) {
+    for (int i = 0; i < pins_.size(); i++) {
+      if (pins_[i]->is_driver_) {
         assert(driver_index_ == -1);
         driver_index_ = i;
       }
     }
+    initialize();
+  }
+
+  void updateRES(const RES& res) {
+    res_ = res;
     initialize();
   }
 
@@ -182,9 +237,14 @@ class RESTree {
   vector<int> y_high_;
 };
 
+
 class OverflowManager {
  public:
-  OverflowManager(int x_grid, int y_grid) {
+  OverflowManager() {
+
+  }
+
+  void init(int x_grid, int y_grid) {
     x_grid_ = x_grid;
     y_grid_ = y_grid;
     hcapacity_map_.resize(y_grid_);
@@ -234,7 +294,8 @@ class OverflowManager {
   }
 
   static OverflowManager* createRandom(int nx, int ny) {
-    OverflowManager* overflow_manager = new OverflowManager(nx, ny);
+    OverflowManager* overflow_manager = new OverflowManager();
+    overflow_manager->init(nx, ny);
     for (int y = 0; y < ny; y++) {
       for (int x = 0; x < nx; x++) {
         overflow_manager->setVCapacity(x, y, rand() % 10);
@@ -244,6 +305,38 @@ class OverflowManager {
       }
     }
     return overflow_manager;
+  }
+
+  void addUsage(const RESTree* tree) {
+    for (int i = 0; i < tree->numPins(); i++) {
+      int y = tree->y(i);
+      int x_low = tree->x_low(i);
+      int x_high = tree->x_high(i);
+      changeHUsage(y, x_low, x_high);
+    }
+
+    for (int i = 0; i < tree->numPins(); i++) {
+      int x = tree->x(i);
+      int y_low = tree->y_low(i);
+      int y_high = tree->y_high(i);
+      changeVUsage(x, y_low, y_high);
+    }
+  }
+
+  void removeUsage(const RESTree* tree) {
+    for (int i = 0; i < tree->numPins(); i++) {
+      int y = tree->y(i);
+      int x_low = tree->x_low(i);
+      int x_high = tree->x_high(i);
+      changeHUsage(y, x_low, x_high, -1);
+    }
+
+    for (int i = 0; i < tree->numPins(); i++) {
+      int x = tree->x(i);
+      int y_low = tree->y_low(i);
+      int y_high = tree->y_high(i);
+      changeVUsage(x, y_low, y_high, -1);
+    }
   }
 
  private:
@@ -257,12 +350,19 @@ class OverflowManager {
 
 class RESTreeAbstractEvaluator {
  public:
+  RESTreeAbstractEvaluator() { weight_ = 1.0; }
   virtual double getCost(RESTree* tree) = 0;
+
+  double weight() const { return weight_; }
+  void setWeight(double weight) { weight_ = weight; }
+
+ private:
+  double weight_;
 };
 
 class RESTreeLengthEvaluator : public RESTreeAbstractEvaluator {
  public:
-  double getCost(RESTree* tree) { return tree->length(); }
+  double getCost(RESTree* tree) { return tree->length() * weight(); }
 };
 
 class RESTreeOverflowEvaluator : public RESTreeAbstractEvaluator {
@@ -286,7 +386,7 @@ class RESTreeOverflowEvaluator : public RESTreeAbstractEvaluator {
       int y_high = tree->y_high(i);
       overflow += overflow_manager_->countVOverflow(x, y_low, y_high);
     }
-    return overflow;
+    return overflow * weight();
   }
 
  private:
@@ -841,8 +941,9 @@ class RESTreeDetourEvaluator : public RESTreeAbstractEvaluator {
     }
   }
 
-  double getCost(RESTree* tree) { 
-    map<int, int> manhattan_distances = calculateManhattanDistancesFromDriver(tree);
+  double getCost(RESTree* tree) {
+    map<int, int> manhattan_distances =
+        calculateManhattanDistancesFromDriver(tree);
     map<int, int> pathlengths = calculatePathlengthsFromDriver(tree);
     double total_detour_cost = 0;
     for (int i = 0; i < tree->numPins(); i++) {
@@ -852,7 +953,7 @@ class RESTreeDetourEvaluator : public RESTreeAbstractEvaluator {
       double detour_cost = weight * detour;
       total_detour_cost += detour_cost;
     }
-    return total_detour_cost;
+    return total_detour_cost * weight();
   }
 
   map<int, int> calculateManhattanDistancesFromDriver(RESTree* tree) {
@@ -895,6 +996,145 @@ class RESTreeDetourEvaluator : public RESTreeAbstractEvaluator {
   }
 };
 
+class RESTreeOptimizer {
+ public:
+  RESTreeOptimizer(vector<RESTreeAbstractEvaluator*> evaluators) {
+    evaluators_ = evaluators;
+  }
+
+  double optimize(RESTree* tree) {
+    double prev_cost = getCost(tree);
+    int N = tree->numPins();
+    RES best_res = tree->getRES();
+    vector<Point> pts;
+    for (int i = 0; i < N; i++) {
+      pts.push_back(Point(tree->x(i), tree->y(i)));
+    }
+
+    vector<vector<int>> neighbors = getNearestNeighbors(pts);
+
+    double best_cost = prev_cost;
+    int best_delete = -1;
+    RE best_add;
+
+    while (true) {
+      prev_cost = best_cost;
+      for (int i = 0; i < best_res.count(); i++) {
+        RES new_res = best_res;
+        int dv = new_res.get(i).first;
+        int dh = new_res.get(i).second;
+        new_res.erase(i);
+
+        UnionFind uf(N);
+
+        for (int j = 0; j < new_res.count(); j++) {
+          int nv = new_res.get(j).first;
+          int nh = new_res.get(j).second;
+          uf.unite(nv, nh);
+        }
+
+        for (int nv = 0; nv < N; nv++) {
+          for (int nh = 0; nh < N; nh++) {
+            if (nv == dv and nh == dh) {
+              continue;
+            }
+            if (uf.connected(nv, nh)) {
+              continue;
+            }
+            new_res.add(RE(nv, nh));
+            tree->updateRES(new_res);
+            double new_cost = getCost(tree);
+            if (new_cost < best_cost) {
+              best_cost = new_cost;
+              best_res = new_res;
+              best_delete = i;
+              best_add = RE(nv, nh);
+            }
+            new_res.erase(new_res.count() - 1);
+          }
+        }
+      }
+      if (best_cost < prev_cost) {
+        best_res.erase(best_delete);
+        best_res.add(best_add);
+      } else {
+        break;
+      }
+    }
+    tree->updateRES(best_res);
+    return best_cost;
+  }
+
+  double getCost(RESTree* tree) {
+    double cost = 0.0;
+    for (RESTreeAbstractEvaluator* evaluator : evaluators_) {
+      cost += evaluator->getCost(tree);
+    }
+    return cost;
+  }
+
+  vector<vector<int>> getNearestNeighbors(const vector<Point>& pts) {
+    vector<int> data;
+    data.clear();
+
+    const size_t pt_count = pts.size();
+
+    vector<vector<int>> neighbors(pt_count);
+    data.reserve(pt_count * 5);
+    data.resize(pt_count * 2, std::numeric_limits<int>::max());
+    data.resize(pt_count * 4, std::numeric_limits<int>::min());
+    data.resize(pt_count * 5);
+    int* const ur = &data[0];  // NOLINT
+    int* const lr = &data[pt_count];
+    int* const ul = &data[pt_count * 2];
+    int* const ll = &data[pt_count * 3];
+    int* const sorted = &data[pt_count * 4];
+
+    // sort in y-axis
+    std::iota(sorted, sorted + pt_count, 0);
+    std::stable_sort(sorted, sorted + pt_count, [&pts](int i, int j) {
+      return std::make_pair(pts[i].getY(), pts[i].getX()) <
+             std::make_pair(pts[j].getY(), pts[j].getX());
+    });
+
+    // Compute neighbors going from bottom to top in Y
+    for (int idx = 0; idx < pt_count; ++idx) {
+      const int pt_idx = sorted[idx];
+      const int pt_x = pts[pt_idx].getX();
+      // Update upper neighbors of all pts below pt (below.y <= pt.y)
+      for (int i = 0; i < idx; ++i) {
+        const int below_idx = sorted[i];
+        const int below_x = pts[below_idx].getX();
+        if (below_x <= pt_x && pt_x < ur[below_idx]) {  // pt in ur
+          neighbors[below_idx].push_back(pt_idx);
+          ur[below_idx] = pt_x;
+        } else if (ul[below_idx] < pt_x && pt_x < below_x) {  // pt in ul
+          neighbors[below_idx].push_back(pt_idx);
+          ul[below_idx] = pt_x;
+        }
+      }
+
+      // Set all lower neighbors for 'pt' (below.y <= pt.y)
+      for (int i = idx - 1; i >= 0; --i) {
+        const int below_idx = sorted[i];
+        const int below_x = pts[below_idx].getX();
+        if (pt_x <= below_x && below_x < lr[pt_idx]) {  // below in lr
+          neighbors[pt_idx].push_back(below_idx);
+          lr[pt_idx] = below_x;
+        } else if (ll[pt_idx] < below_x && below_x < pt_x) {  // below in ll
+          neighbors[pt_idx].push_back(below_idx);
+          ll[pt_idx] = below_x;
+        }
+      }
+    }
+
+    return neighbors;
+  }
+
+  vector<RESTreeAbstractEvaluator*> evaluators_;
+};
+
+
 class TimingDrivenSteinerTreeBuilder {
  public:
   TimingDrivenSteinerTreeBuilder();
@@ -905,17 +1145,17 @@ class TimingDrivenSteinerTreeBuilder {
   void setVEdge(int x, int y, int cap, int usage, int red);
   void setHEdge(int x, int y, int cap, int usage, int red);
 
+  void optimize();
+  void reserveNets(int n);
+  void initializeRESTrees();
   void addOrUpdateNet(odb::dbNet* dbnet, const std::vector<int>& x,
-                      const std::vector<int>& y, int driver_index,
-                      const std::vector<double>& slack,
+                      const std::vector<int>& y, bool is_clock,
+                      int driver_index, const std::vector<double>& slack,
                       const std::vector<double>& arrival_time);
   void clearNets();
   void printNets() const;
   void printEdges() const;
   void buildSteinerTrees();
-
-  Tree makeSteinerTree(odb::dbNet* net, const std::vector<int>& x,
-                       const std::vector<int>& y, int drvr_index);
 
   vector<RES> runREST(const vector<vector<TDPoint>>& input_data);
   RESTree* generateRandomRESTree(int n_pins, int x_grid, int y_grid,
@@ -928,11 +1168,13 @@ class TimingDrivenSteinerTreeBuilder {
   Logger* logger_;
   odb::dbDatabase* db_;
 
-  int x_grid_;
-  int y_grid_;
-  std::map<odb::dbNet*, TDNet*> net_map_;
-  vector<vector<TDEdge>> h_edges_;
-  vector<vector<TDEdge>> v_edges_;
+  OverflowManager* overflow_manager_;
+  RESTreeOptimizer* restree_optimizer_;
+  std::map<odb::dbNet*, int> net_index_map_;
+  vector<odb::dbNet*> nets_;
+  vector<TDNet*> td_nets_;
+  vector<RESTree*> restrees_;
+  vector<Tree> steiner_trees_;
 };
 
 }  // namespace stt

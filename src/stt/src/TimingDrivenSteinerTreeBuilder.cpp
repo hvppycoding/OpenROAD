@@ -32,7 +32,17 @@ void RES::initialize_from_1d(const vector<int>& res) {
 }
 
 TimingDrivenSteinerTreeBuilder::TimingDrivenSteinerTreeBuilder()
-    : db_(nullptr), logger_(nullptr), x_grid_(0), y_grid_(0) {}
+    : db_(nullptr), logger_(nullptr) {
+  overflow_manager_ = new OverflowManager();
+  RESTreeDetourEvaluator* detour = new RESTreeDetourEvaluator();
+  detour->setWeight(0.3);
+  RESTreeLengthEvaluator* length = new RESTreeLengthEvaluator();
+  length->setWeight(0.7);
+  RESTreeOverflowEvaluator* overflow = new RESTreeOverflowEvaluator(overflow_manager_);
+  overflow->setWeight(0.2);
+  // std::vector<RESTreeAbstractEvaluator*> evaluators; // = {detour, length, overflow};
+  // restree_optimizer_ = new RESTreeOptimizer(evaluators);
+}
 
 TimingDrivenSteinerTreeBuilder::~TimingDrivenSteinerTreeBuilder() {
   clearNets();
@@ -45,66 +55,79 @@ void TimingDrivenSteinerTreeBuilder::init(odb::dbDatabase* db, Logger* logger) {
 }
 
 void TimingDrivenSteinerTreeBuilder::setGrids(int x_grid, int y_grid) {
-  if (x_grid_ == x_grid && y_grid_ == y_grid) {
-    return;
-  }
-  x_grid_ = x_grid;
-  y_grid_ = y_grid;
-  v_edges_.resize(0);
-  h_edges_.resize(0);
-  v_edges_.resize(y_grid_);
-  h_edges_.resize(y_grid_);
-  for (int y = 0; y < y_grid; y++) {
-    v_edges_[y].resize(x_grid_);
-    h_edges_[y].resize(x_grid_);
-  }
+  overflow_manager_->init(x_grid, y_grid);
 }
 
 void TimingDrivenSteinerTreeBuilder::setVEdge(int x, int y, int cap, int usage,
                                               int red) {
-  v_edges_[y][x].cap = cap;
-  v_edges_[y][x].usage = usage;
-  v_edges_[y][x].red = red;
+  overflow_manager_->setVCapacity(x, y, cap);
 }
 
 void TimingDrivenSteinerTreeBuilder::setHEdge(int x, int y, int cap, int usage,
                                               int red) {
-  h_edges_[y][x].cap = cap;
-  h_edges_[y][x].usage = usage;
-  h_edges_[y][x].red = red;
+  overflow_manager_->setHCapacity(x, y, cap);
+}
+
+void TimingDrivenSteinerTreeBuilder::reserveNets(int n) {
+  nets_.reserve(n);
+  td_nets_.reserve(n);
+  restrees_.reserve(n);
+  steiner_trees_.reserve(n);
 }
 
 void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     odb::dbNet* dbnet, const std::vector<int>& x, const std::vector<int>& y,
-    int driver_index, const std::vector<double>& slack,
+    bool is_clock, int driver_index, const std::vector<double>& slack,
     const std::vector<double>& arrival_time) {
   TDNet* net;
-  if (net_map_.find(dbnet) == net_map_.end()) {
+  int net_index;
+  if (net_index_map_.find(dbnet) == net_index_map_.end()) {
+    net_index = td_nets_.size();
     net = new TDNet();
   } else {
-    net = net_map_[dbnet];
+    net_index = net_index_map_[dbnet];
+    net = td_nets_[net_index];
   }
+
   net->dbnet_ = dbnet;
+  net->is_clock_ = is_clock;
   net->n_pins_ = x.size();
   net->x_ = x;
   net->y_ = y;
   net->driver_index_ = driver_index;
   net->slack_ = slack;
   net->arrival_time_ = arrival_time;
-  net_map_[dbnet] = net;
+
+  if (nets_.size() <= net_index) {
+    nets_.resize(net_index + 1, nullptr);
+  }
+  nets_[net_index] = dbnet;
+
+  if (td_nets_.size() <= net_index) {
+    td_nets_.resize(net_index + 1, nullptr);
+  }
+  td_nets_[net_index] = net;
+
+  if (restrees_.size() <= net_index) {
+    restrees_.resize(net_index + 1, nullptr);
+  }
+  if (steiner_trees_.size() <= net_index) {
+    steiner_trees_.resize(net_index + 1);
+  }
 }
 
 void TimingDrivenSteinerTreeBuilder::clearNets() {
-  for (auto net : net_map_) {
-    delete net.second;
+  for (auto tdnet : td_nets_) {
+    delete tdnet;
   }
-  net_map_.clear();
+  td_nets_.clear();
 }
 
 void TimingDrivenSteinerTreeBuilder::printNets() const {
-  for (auto net : net_map_) {
+  for (auto net : net_index_map_) {
+    int index = net.second;
     odb::dbNet* dbnet = net.first;
-    TDNet* tdnet = net.second;
+    TDNet* tdnet = td_nets_[index];
     bool debug = true;
     if (debug) {
       logger_->setDebugLevel(utl::STT, "addNet", 3);
@@ -122,44 +145,51 @@ void TimingDrivenSteinerTreeBuilder::printNets() const {
   }
 }
 
-void TimingDrivenSteinerTreeBuilder::printEdges() const {
-  for (int y = 0; y < y_grid_; y++) {
-    for (int x = 0; x < x_grid_; x++) {
-      logger_->report("VEdge ({}, {}) cap: {} usage: {} red: {}", x, y,
-                      v_edges_[y][x].cap, v_edges_[y][x].usage,
-                      v_edges_[y][x].red);
-      logger_->report("HEdge ({}, {}) cap: {} usage: {} red: {}", x, y,
-                      h_edges_[y][x].cap, h_edges_[y][x].usage,
-                      h_edges_[y][x].red);
+void TimingDrivenSteinerTreeBuilder::initializeRESTrees() {
+  vector<int> initialized_net_index;
+  vector<vector<TDPoint> > input_data;
+  for (int i = 0; i < td_nets_.size(); i++) {
+    TDNet* net = td_nets_[i];
+    if (restrees_[i] != nullptr) {
+      logger_->report("Net {} already has a RESTree", i);
+      continue;
     }
+    vector<TDPoint> net_pin_pos;
+    for (int j = 0; j < net->n_pins_; j++) {
+      TDPoint point;
+      point.x_ = net->x_[j];
+      point.y_ = net->y_[j];
+      net_pin_pos.push_back(point);
+    }
+    input_data.push_back(net_pin_pos);
+    initialized_net_index.push_back(i);
+  }
+
+  vector<RES> reslist = runREST(input_data);
+
+  for (int i = 0; i < initialized_net_index.size(); i++) {
+    int net_idx = initialized_net_index[i];
+    RES res = reslist[i];
+    RESTree* restree = new RESTree(td_nets_[net_idx], res);
+    restrees_[net_idx] = restree;
+    overflow_manager_->addUsage(restree);
+  }
+}
+
+void TimingDrivenSteinerTreeBuilder::optimize() {
+  for (int i = 0; i < restrees_.size(); i++) {
+    RESTree* restree = restrees_[i];
+    if (restree == nullptr) {
+      continue;
+    }
+    overflow_manager_->removeUsage(restree);
+    restree_optimizer_->optimize(restree);
+    overflow_manager_->addUsage(restree);
   }
 }
 
 void TimingDrivenSteinerTreeBuilder::buildSteinerTrees() {
-  printEdges();
-  printNets();
-}
-
-Tree TimingDrivenSteinerTreeBuilder::makeSteinerTree(odb::dbNet* net,
-                                                     const std::vector<int>& y,
-                                                     const std::vector<int>& x,
-                                                     int drvr_index) {
-  std::string coordinates = "";
-  for (int i = 0; i < x.size(); i++) {
-    coordinates +=
-        "(" + std::to_string(x[i]) + ", " + std::to_string(y[i]) + ") ";
-  }
-  logger_->report("makeSteinerTree Net {}: {}", net->getConstName(),
-                  coordinates);
-
-  if (net_map_.find(net) == net_map_.end()) {
-    logger_->report("Net {} NOT initialized for timing-driven routing",
-                    net->getConstName());
-  } else {
-    logger_->report("Net {} initialized for timing-driven routing",
-                    net->getConstName());
-  }
-  return Tree();
+  initializeRESTrees();
 }
 
 static std::string getCurrentTimeString() {
@@ -272,11 +302,13 @@ RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(
   TDNet* net = new TDNet();
   net->dbnet_ = nullptr;
   net->n_pins_ = n_pins;
+  net->is_clock_ = false;
   net->x_ = xs;
   net->y_ = ys;
   net->driver_index_ = driver_index;
   net->slack_ = slacks;
   net->arrival_time_.resize(n_pins, 0.0);
+  net->pins_ = pins;  
 
   vector<vector<TDPoint> > input_data;
   for (int i = 0; i < n_pins; i++) {
@@ -291,7 +323,7 @@ RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(
   }
 
   vector<RES> res = runREST(input_data);
-  RESTree* res_tree = new RESTree(net, res[0], pins);
+  RESTree* res_tree = new RESTree(net, res[0]);
   return res_tree;
 }
 
@@ -317,7 +349,8 @@ void TimingDrivenSteinerTreeBuilder::testEvaluators() {
 
   RESTreeDetourEvaluator* detour = new RESTreeDetourEvaluator();
   RESTreeLengthEvaluator* length = new RESTreeLengthEvaluator();
-  RESTreeOverflowEvaluator* overflow = new RESTreeOverflowEvaluator(overflow_manager);
+  RESTreeOverflowEvaluator* overflow =
+      new RESTreeOverflowEvaluator(overflow_manager);
 
   RESTree* res_tree = generateRandomRESTree();
   string str = res_tree->toString();
