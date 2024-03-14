@@ -1445,7 +1445,105 @@ void FastRouteCore::gen_brk_ALL() {
 
 void FastRouteCore::gen_brk_ALLCPP() {
   logger_->report("===== gen_brk_ALLCPP =====");
+  int numShift = 0;
+  int totalNumSeg = 0;
+  std::vector<Tree> flute_rsmts;
+  const int carest_limit_degree = 50;
+  const int flute_accuracy = 2;
+  auto isOriginalAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() > carest_limit_degree || net->isClock();
+  };
+  auto isNewAlgorithmRequired = [&](FrNet* net) {
+    return net->getNumPins() <= carest_limit_degree && !net->isClock();
+  };
 
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    float coeffV = 1.0;
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+    if (isOriginalAlgorithmRequired(net)) {
+      Tree rsmt;
+      const float net_alpha = stt_builder_->getAlpha(net->getDbNet());
+      if (net_alpha > 0.0) {
+        rsmt =
+            stt_builder_->makeSteinerTree(net->getDbNet(), net->getPinX(),
+                                          net->getPinY(), net->getDriverIdx());
+      } else {
+        fluteNormal(i, net->getPinX(), net->getPinY(), flute_accuracy, coeffV,
+                    rsmt);
+        rsmt = fixTreeFromFlute(rsmt, net->getPinX(), net->getPinY(),
+                                net->getDriverIdx());
+      }
+      flute_rsmts.push_back(rsmt);
+      for (int j = 0; j < rsmt.branchCount(); j++) {
+        const int x1 = rsmt.branch[j].x;
+        const int y1 = rsmt.branch[j].y;
+        const int n = rsmt.branch[j].n;
+        const int x2 = rsmt.branch[n].x;
+        const int y2 = rsmt.branch[n].y;
+
+        if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+          // the position of this segment in seglist
+          seglist_[i].push_back(Segment());
+          auto& seg = seglist_[i].back();
+          if (x1 < x2) {
+            seg.x1 = x1;
+            seg.x2 = x2;
+            seg.y1 = y1;
+            seg.y2 = y2;
+          } else {
+            seg.x1 = x2;
+            seg.x2 = x1;
+            seg.y1 = y2;
+            seg.y2 = y1;
+          }
+
+          seg.netID = i;
+        }
+      }  // loop j
+    }
+  }
+
+  // ===== FLUTE LROUTE BEGIN =====
+  // estimate congestion with 0.5+0.5 L
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (isOriginalAlgorithmRequired(net)) {
+      for (auto& seg : seglist_[i]) {
+        estimateOneSeg(&seg);
+      }
+    }
+  }
+  // L route
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    if (isOriginalAlgorithmRequired(net)) {
+      for (auto& seg : seglist_[i]) {
+        // no need to reroute the H or V segs
+        if (seg.x1 != seg.x2 || seg.y1 != seg.y2) routeSegLFirstTime(&seg);
+      }
+    }
+  }
+  // ===== FLUTE LROUTE END =====
+
+
+  // START TimingDrivenSteinerTree
   td_stt_builder_->setGrids(x_grid_, y_grid_);
   for (int y = 0; y < y_grid_; y++) {
     for (int x = 0; x < x_grid_ - 1; x++) {
@@ -1464,8 +1562,13 @@ void FastRouteCore::gen_brk_ALLCPP() {
     }
   }
 
+  td_stt_builder_->reserveNets(netCount());
+
   for (int i = 0; i < netCount(); i++) {
     if (skipNet(i)) {
+      continue;
+    }
+    if (!isNewAlgorithmRequired(nets_[i])) {
       continue;
     }
     FrNet* net = nets_[i];
@@ -1480,8 +1583,105 @@ void FastRouteCore::gen_brk_ALLCPP() {
                                     net->getPinY(), net->isClock(),
                                     net->getDriverIdx(), slack, arrival_time);
   }
-
   td_stt_builder_->buildSteinerTrees();
+  vector<Tree> td_rsmts;
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+    if (!isNewAlgorithmRequired(nets_[i])) {
+      continue;
+    }
+    Tree tree = td_stt_builder_->getSteinerTree(nets_[i]->getDbNet());
+    td_rsmts.push_back(tree);
+  }
+
+  // ===== RIPUP FLUTE LROUTE BEGIN =====
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+    seglist_[i].clear();
+  }
+  // ===== RIPUP FLUTE LROUTE END =====
+
+  int carest_index = 0;
+  int flute_index = 0;
+
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    Tree rsmt;
+    if (isOriginalAlgorithmRequired(net)) {
+      rsmt = flute_rsmts[flute_index++];
+    } else {
+      rsmt = td_rsmts[carest_index++];
+    }
+
+    for (int j = 0; j < rsmt.branchCount(); j++) {
+      const int x1 = rsmt.branch[j].x;
+      const int y1 = rsmt.branch[j].y;
+      const int n = rsmt.branch[j].n;
+      const int x2 = rsmt.branch[n].x;
+      const int y2 = rsmt.branch[n].y;
+
+      if (x1 != x2 || y1 != y2) {  // the branch is not degraded (a point)
+        // the position of this segment in seglist
+        seglist_[i].push_back(Segment());
+        auto& seg = seglist_[i].back();
+        if (x1 < x2) {
+          seg.x1 = x1;
+          seg.x2 = x2;
+          seg.y1 = y1;
+          seg.y2 = y2;
+        } else {
+          seg.x1 = x2;
+          seg.x2 = x1;
+          seg.y1 = y2;
+          seg.y2 = y1;
+        }
+
+        seg.netID = i;
+      }
+    }  // loop j
+  }
+
+  routeLAll(true);
+
+  carest_index = 0;
+  flute_index = 0;
+  for (int i = 0; i < netCount(); i++) {
+    if (skipNet(i)) {
+      continue;
+    }
+
+    FrNet* net = nets_[i];
+    int d = net->getNumPins();
+
+    for (auto& seg : seglist_[i]) {
+      ripupSegL(&seg);
+    }
+
+    if (isOriginalAlgorithmRequired(net)) {
+      Tree rsmt = flute_rsmts[flute_index++];
+      copyStTree(i, rsmt);
+    } else {
+      Tree rsmt = td_rsmts[carest_index++];
+      copyStTree(i, rsmt);
+    }
+
+    newrouteL(i, RouteType::NoRoute,
+              true);  // route the net with no previous route for each tree edge
+  }
 }
 
 void FastRouteCore::writeTDInputFile(const char* filename,
