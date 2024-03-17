@@ -1049,7 +1049,8 @@ vector<vector<int>> RESTreeOptimizer::getNearestNeighbors(
 }
 
 TimingDrivenSteinerTreeBuilder::TimingDrivenSteinerTreeBuilder()
-    : db_(nullptr), logger_(nullptr), restree_optimizer_(nullptr) {}
+    : db_(nullptr), logger_(nullptr), restree_optimizer_(nullptr), parasitics_src_(ParasiticsSrc::NONE)
+    {}
 
 TimingDrivenSteinerTreeBuilder::~TimingDrivenSteinerTreeBuilder() {
   clearNets();
@@ -1078,6 +1079,10 @@ void TimingDrivenSteinerTreeBuilder::setGrids(int x_grid, int y_grid) {
   overflow_manager_->init(x_grid, y_grid);
 }
 
+void TimingDrivenSteinerTreeBuilder::setParasiticsSrc(ParasiticsSrc parasitics_src) {
+  parasitics_src_ = parasitics_src;
+}
+
 void TimingDrivenSteinerTreeBuilder::setVEdge(int x, int y, int cap, int usage,
                                               int red) {
   overflow_manager_->setVCapacity(x, y, cap - usage);
@@ -1101,15 +1106,27 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     const std::vector<double>& arrival_time) {
   TDNet* net;
   int net_index;
-  if (net_index_map_.find(dbnet) == net_index_map_.end()) {
-    net_index = td_nets_.size();
-    net_index_map_[dbnet] = net_index;
-    net = new TDNet();
-  } else {
+
+  // Update net if it already exists
+  if (net_index_map_.find(dbnet) != net_index_map_.end()) {
     net_index = net_index_map_[dbnet];
     net = td_nets_[net_index];
-  }
+    net->driver_index_ = driver_index;
+    net->slack_ = slack;
+    net->arrival_time_ = arrival_time;
 
+    for (int i = 0; i < net->n_pins_; i++) {
+      TDPin* pin = net->pins_[i];
+      pin->x_ = net->x_[i];
+      pin->y_ = net->y_[i];
+      pin->slack_ = net->slack_[i];
+      pin->arrival_time_ = net->arrival_time_[i];
+    }
+    return;
+  }
+  net_index = td_nets_.size();
+  net_index_map_[dbnet] = net_index;
+  net = new TDNet();
   net->dbnet_ = dbnet;
   net->is_clock_ = is_clock;
   net->n_pins_ = x.size();
@@ -1212,26 +1229,46 @@ void TimingDrivenSteinerTreeBuilder::initializeRESTrees() {
   reportOverflow();
 }
 
-void TimingDrivenSteinerTreeBuilder::optimize() {
+void TimingDrivenSteinerTreeBuilder::optimizeAll() {
   for (int i = 0; i < restrees_.size(); i++) {
     RESTree* restree = restrees_[i];
     if (restree == nullptr) {
       continue;
     }
     logger_->report("Optimizing RESTree for net {}", restree->netName());
-    reportRESTree(restree);
+    double prev_cost = reportRESTree(restree);
     overflow_manager_->removeTreeUsage(restree);
     restree_optimizer_->optimize(restree);
     overflow_manager_->addTreeUsage(restree);
     steiner_trees_[i] = TreeConverter(restree).convertToSteinerTree();
     logger_->report("Optimized RESTree for net {}", restree->netName());
-    reportRESTree(restree);
+    double new_cost = reportRESTree(restree);
+    if (new_cost < prev_cost) {
+      count_updated_trees_++;
+    }
   }
 }
 
 void TimingDrivenSteinerTreeBuilder::buildSteinerTrees() {
-  initializeRESTrees();
-  optimize();
+  if (parasitics_src_ == ParasiticsSrc::PLACEMENT) {
+    logger_->report("Building Initial Steiner Trees using placement parasitics");
+    initializeRESTrees();
+    for (int i = 0; i < restrees_.size(); i++) {
+      RESTree* restree = restrees_[i];
+      steiner_trees_[i] = TreeConverter(restree).convertToSteinerTree();
+    }
+  } else if (parasitics_src_ == ParasiticsSrc::GLOBAL_ROUTING) {
+    logger_->report("Building Initial Steiner Trees using global routing parasitics");
+    optimizeAll();
+  }
+}
+
+int TimingDrivenSteinerTreeBuilder::getUpdatedTreesCount() {
+  return count_updated_trees_;
+}
+
+void TimingDrivenSteinerTreeBuilder::resetUpdatedTreesCount() {
+  count_updated_trees_ = 0;
 }
 
 static std::string getCurrentTimeString() {
@@ -1302,14 +1339,21 @@ void TimingDrivenSteinerTreeBuilder::reportOverflow() {
   overflow_manager_->reportOverflow(logger_);
 }
 
-void TimingDrivenSteinerTreeBuilder::reportRESTree(RESTree* tree) {
+double TimingDrivenSteinerTreeBuilder::reportRESTree(RESTree* tree) {
+  double detour = detour_evaluator_->getCost(tree);
+  double length = length_evaluator_->getCost(tree);
+  double overflow = overflow_evaluator_->getCost(tree);
+  double cost = detour + length + overflow;
+
   logger_->report("RESTree: {}", tree->netName());
   logger_->report("  Driver: {}", tree->driverIndex());
   logger_->report("  Pins: {}", tree->numPins());
   logger_->report("  RES: {}", tree->getRES().toString());
-  logger_->report("  Detour: {}", detour_evaluator_->getCost(tree));
-  logger_->report("  Length: {}", length_evaluator_->getCost(tree));
-  logger_->report("  Overflow: {}", overflow_evaluator_->getCost(tree));
+  logger_->report("  Detour: {}", detour);
+  logger_->report("  Length: {}", length);
+  logger_->report("  Overflow: {}", overflow);
+
+  return cost;
 }
 
 RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(

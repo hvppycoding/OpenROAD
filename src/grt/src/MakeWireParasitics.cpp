@@ -533,6 +533,40 @@ float MakeWireParasitics::getNetSlack(odb::dbNet* net)
   float slack = sta_->netSlack(sta_net, sta::MinMax::max());
   return slack;
 }
+
+float MakeWireParasitics::getITermSlack(odb::dbITerm* iterm)
+{
+  sta::dbNetwork* network = sta_->getDbNetwork();
+  sta::Pin* pin = network->dbToSta(iterm);
+  float slack = sta_->pinSlack(pin, sta::MinMax::max());
+  return slack;
+}
+
+float MakeWireParasitics::getITermArrivalTime(odb::dbITerm* iterm)
+{
+  sta::dbNetwork* network = sta_->getDbNetwork();
+  sta::Pin* pin = network->dbToSta(iterm);
+  float atr = sta_->pinArrival(pin, sta::RiseFall::rise(), sta::MinMax::max());
+  float atf = sta_->pinArrival(pin, sta::RiseFall::fall(), sta::MinMax::max());
+  return std::max(atr, atf);
+}
+
+float MakeWireParasitics::getBTermSlack(odb::dbBTerm* bterm)
+{
+  sta::dbNetwork* network = sta_->getDbNetwork();
+  sta::Pin* pin = network->dbToSta(bterm);
+  float slack = sta_->pinSlack(pin, sta::MinMax::max());
+  return slack;
+}
+
+float MakeWireParasitics::getBTermArrivalTime(odb::dbBTerm* bterm)
+{
+  sta::dbNetwork* network = sta_->getDbNetwork();
+  sta::Pin* pin = network->dbToSta(bterm);
+  float atr = sta_->pinArrival(pin, sta::RiseFall::rise(), sta::MinMax::max());
+  float atf = sta_->pinArrival(pin, sta::RiseFall::fall(), sta::MinMax::max());
+  return std::max(atr, atf);
+}
 ////////////////////////////////////////////////////////////////
 
 std::vector<int> MakeWireParasitics::routeLayerLengths(odb::dbNet* db_net) const

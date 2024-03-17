@@ -511,6 +511,8 @@ class FastRouteCore
   void printEdge2D(int netID, int edgeID);
   void printEdge3D(int netID, int edgeID);
   void printTree3D(int netID);
+  void printTiming();
+  void printTiming(FrNet* net);
   void check2DEdgesUsage();
   void verify2DEdgesUsage();
   void verifyEdgeUsage();

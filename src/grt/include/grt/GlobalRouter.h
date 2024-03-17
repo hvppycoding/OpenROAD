@@ -198,6 +198,8 @@ class GlobalRouter : public ant::GlobalRouteSource
                    bool start_incremental = false,
                    bool end_incremental = false,
                    bool call_from_main = false);
+  void timingDrivenGlobalRoute(bool save_guides);
+  void timingDrivenGlobalRouteStep();
   void saveCongestion();
   NetRouteMap& getRoutes() { return routes_; }
   Net* getNet(odb::dbNet* db_net);

@@ -88,6 +88,10 @@ class MakeWireParasitics : public AbstractMakeWireParasitics
   std::vector<int> routeLayerLengths(odb::dbNet* db_net) const;
   // Return the Slack of a given net
   float getNetSlack(odb::dbNet* net) override;
+  float getITermSlack(odb::dbITerm* iterm) override;
+  float getITermArrivalTime(odb::dbITerm* iterm) override;
+  float getBTermSlack(odb::dbBTerm* bterm) override;
+  float getBTermArrivalTime(odb::dbBTerm* bterm) override;
 
  private:
   typedef std::map<RoutePt, sta::ParasiticNode*> NodeRoutePtMap;

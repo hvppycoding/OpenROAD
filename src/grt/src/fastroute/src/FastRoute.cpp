@@ -877,6 +877,33 @@ void FastRouteCore::updateDbCongestion()
   }
 }
 
+void FastRouteCore::printTiming()
+{
+  for (int i = 0; i < netCount(); i++) {
+    FrNet* net = nets_[i];
+    printTiming(net);
+  }
+}
+
+void FastRouteCore::printTiming(FrNet* net)
+{
+  logger_->report("Net {} slack: {}", net->getDbNet()->getConstName(), net->getSlack());
+  for (int i = 0; i < net->getNumPins(); i++) {
+    FrPin pin = net->getFrPin(i);
+    if (pin.isPort()) {
+      float slack = parasitics_builder_->getBTermSlack(pin.getBTerm());
+      float at = parasitics_builder_->getBTermArrivalTime(pin.getBTerm());
+      logger_->report("Pin {} slack: {} AT: {} {}", pin.pinName(), slack, at,
+                       pin.isDriver() ? "*" : "");
+    } else {
+      float slack = parasitics_builder_->getITermSlack(pin.getITerm());
+      float at = parasitics_builder_->getITermArrivalTime(pin.getITerm());
+      logger_->report("Pin {} slack: {} AT: {} {}", pin.pinName(), slack, at,
+                      pin.isDriver() ? "*" : "");
+    }
+  }
+}
+
 NetRouteMap FastRouteCore::run(bool call_from_main)
 {
   if (netCount() == 0) {
@@ -991,13 +1018,14 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
 
   getOverflow2D(&maxOverflow);
   newrouteLAll(false, true);
+
   getOverflow2D(&maxOverflow);
   spiralRouteAll();
   newrouteZAll(10);
   int past_cong = getOverflow2D(&maxOverflow);
 
   convertToMazeroute();
-
+    
   int enlarge_ = 10;
   int newTH = 10;
   bool stopDEC = false;

@@ -239,6 +239,14 @@ bool GlobalRouter::haveRoutes() {
 
 void GlobalRouter::globalRoute(bool save_guides, bool start_incremental,
                                bool end_incremental, bool call_from_main) {
+  const char* env_var = getenv("STEINERTREE_ALGORITHM");
+  const int ALLREST_CPP_ALGORITHM = 8;
+
+  if (env_var != nullptr && atoi(env_var) == ALLREST_CPP_ALGORITHM) {
+    timingDrivenGlobalRoute(save_guides);
+    return;
+  }
+  
   if (start_incremental && end_incremental) {
     logger_->error(GRT, 251,
                    "The start_incremental and end_incremental flags cannot be "
@@ -307,6 +315,88 @@ void GlobalRouter::globalRoute(bool save_guides, bool start_incremental,
     if (save_guides) {
       saveGuides();
     }
+  }
+}
+
+void GlobalRouter::timingDrivenGlobalRoute(bool save_guides) {
+  // Estimate parasitics for timing-driven global routing
+  logger_->report("Estimating parasitics from placement.");
+  resizer_->estimateParasitics(rsz::ParasiticsSrc::placement);
+  logger_->report("Estimating parasitics from placement done.");
+  td_stt_builder_->resetUpdatedTreesCount();
+  logger_->report("Initial route");
+  td_stt_builder_->setParasiticsSrc(stt::ParasiticsSrc::PLACEMENT);
+  logger_->report("Start global route step");
+  timingDrivenGlobalRouteStep();
+
+  while (true) {
+    logger_->report("Estimating parasitics from global routing.");
+    resizer_->estimateParasitics(rsz::ParasiticsSrc::global_routing);
+    td_stt_builder_->resetUpdatedTreesCount();
+    logger_->report("Start global route step");
+    td_stt_builder_->setParasiticsSrc(stt::ParasiticsSrc::GLOBAL_ROUTING);
+    timingDrivenGlobalRouteStep();
+    logger_->report("#Updated trees: {}", td_stt_builder_->getUpdatedTreesCount());
+    if (td_stt_builder_->getUpdatedTreesCount() == 0) {
+      break;
+    }
+  }
+
+  if (save_guides) {
+    saveGuides();
+  }
+}
+
+void GlobalRouter::timingDrivenGlobalRouteStep() {
+  clear();
+  block_ = db_->getChip()->getBlock();
+
+  if (max_routing_layer_ == -1) {
+    max_routing_layer_ = computeMaxRoutingLayer();
+  }
+
+  int min_layer = min_layer_for_clock_ > 0
+                      ? std::min(min_routing_layer_, min_layer_for_clock_)
+                      : min_routing_layer_;
+  int max_layer = std::max(max_routing_layer_, max_layer_for_clock_);
+
+  std::vector<Net*> nets = initFastRoute(min_layer, max_layer);
+
+  if (verbose_) {
+    reportResources();
+  }
+
+  routes_ = findRouting(nets, min_layer, max_layer, true);
+
+  updateDbCongestion();
+  saveCongestion();
+
+  if (fastroute_->has2Doverflow()) {
+    if (!allow_congestion_) {
+      if (congestion_file_name_ != nullptr) {
+        logger_->error(
+            GRT, 120,
+            "Routing congestion too high. Check the congestion heatmap "
+            "in the GUI and load {} in the DRC viewer.",
+            congestion_file_name_);
+      } else {
+        logger_->error(
+            GRT, 121,
+            "Routing congestion too high. Check the congestion heatmap "
+            "in the GUI.");
+      }
+    }
+  }
+  if (fastroute_->totalOverflow() > 0 && verbose_) {
+    logger_->warn(GRT, 116, "Global routing finished with overflow.");
+  }
+
+  if (verbose_) {
+    reportCongestion();
+  }
+  computeWirelength();
+  if (verbose_) {
+    logger_->info(GRT, 16, "Routed nets: {}", routes_.size());
   }
 }
 
@@ -710,9 +800,13 @@ FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid) {
   float slack = std::min(rise_slack, fall_slack);
   float arrival_time = std::max(rise_arrival_time, fall_arrival_time);
 
-  return FrPin(pin_id, pin_on_grid.x(), pin_on_grid.y(), pin_on_grid.layer(),
-               arrival_time, slack, pin.isDriver(), inst_id, is_sequential,
-               pin_name, inst_name);
+  if (pin.isPort()) {
+    return FrPin(pin.getBTerm(), pin_on_grid.x(), pin_on_grid.y(),
+                 pin_on_grid.layer(), slack, arrival_time, pin.isDriver());
+  } else {
+    return FrPin(pin.getITerm(), pin_on_grid.x(), pin_on_grid.y(),
+                 pin_on_grid.layer(), slack, arrival_time, pin.isDriver());
+  }
 }
 
 void GlobalRouter::findPins(Net* net, std::vector<RoutePt>& pins_on_grid,

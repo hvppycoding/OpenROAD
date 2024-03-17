@@ -31,6 +31,8 @@ using odb::Point;
 using stt::Tree;
 using utl::Logger;
 
+enum class ParasiticsSrc { NONE, PLACEMENT, GLOBAL_ROUTING };
+
 class TDNet;
 
 class UnionFind {
@@ -332,9 +334,10 @@ class TimingDrivenSteinerTreeBuilder {
   ~TimingDrivenSteinerTreeBuilder();
   void init(odb::dbDatabase* db, Logger* logger);
   void setGrids(int x_grid, int y_grid);
+  void setParasiticsSrc(ParasiticsSrc parasitics_src);
   void setVEdge(int x, int y, int cap, int usage, int red);
   void setHEdge(int x, int y, int cap, int usage, int red);
-  void optimize();
+  void optimizeAll();
   void reserveNets(int n);
   void initializeRESTrees();
   void addOrUpdateNet(odb::dbNet* dbnet, const std::vector<int>& x,
@@ -344,10 +347,12 @@ class TimingDrivenSteinerTreeBuilder {
   Tree getSteinerTree(odb::dbNet* dbnet);
   void clearNets();
   void buildSteinerTrees();
+  int getUpdatedTreesCount();
+  void resetUpdatedTreesCount();
 
   vector<RES> runREST(const vector<vector<TDPoint>>& input_data);
   void reportOverflow();
-  void reportRESTree(RESTree* tree);
+  double reportRESTree(RESTree* tree);
   RESTree* generateRandomRESTree(int n_pins, int x_grid, int y_grid,
                                  double slack_mean, double slack_std);
   Tree testRESTree();
@@ -356,6 +361,7 @@ class TimingDrivenSteinerTreeBuilder {
 
  private:
   Logger* logger_;
+  ParasiticsSrc parasitics_src_;
   odb::dbDatabase* db_;
   OverflowManager* overflow_manager_;
   RESTreeOptimizer* restree_optimizer_;
@@ -367,6 +373,7 @@ class TimingDrivenSteinerTreeBuilder {
   RESTreeDetourEvaluator* detour_evaluator_;
   RESTreeLengthEvaluator* length_evaluator_;
   RESTreeOverflowEvaluator* overflow_evaluator_;
+  int count_updated_trees_;
 };
 
 }  // namespace stt

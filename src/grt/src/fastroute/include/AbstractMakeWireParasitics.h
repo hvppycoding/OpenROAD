@@ -39,6 +39,11 @@
 
 #include "grt/GRoute.h"
 
+namespace odb {
+class dbITerm;
+class dbBTerm;
+}  // namespace odb
+
 namespace grt {
 
 class AbstractMakeWireParasitics
@@ -51,6 +56,10 @@ class AbstractMakeWireParasitics
   virtual void clearParasitics() = 0;
 
   virtual float getNetSlack(odb::dbNet* net) = 0;
+  virtual float getITermSlack(odb::dbITerm* iterm) = 0;
+  virtual float getITermArrivalTime(odb::dbITerm* iterm) = 0;
+  virtual float getBTermSlack(odb::dbBTerm* bterm) = 0;
+  virtual float getBTermArrivalTime(odb::dbBTerm* bterm) = 0;
 };
 
 }  // namespace grt

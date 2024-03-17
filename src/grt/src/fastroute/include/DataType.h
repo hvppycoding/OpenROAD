@@ -41,7 +41,9 @@
 
 namespace odb {
 class dbNet;
-}
+class dbITerm;
+class dbBTerm;
+}  // namespace odb
 
 using int64 = std::int64_t;
 
@@ -86,54 +88,70 @@ struct Segment  // A Segment is a 2-pin connection
 
 struct FrPin
 {
-  FrPin(uint pin_id,
-        int x, 
-        int y, 
-        int layer, 
-        float slack, 
-        float arrival_time, 
-        bool is_driver, 
-        int inst_id, 
-        bool is_sequential,
-        std::string pin_name,
-        std::string inst_name)
-      : pin_id_(pin_id),
-        x_(x),
-        y_(y),
-        layer_(layer),
-        slack_(slack),
-        arrival_time_(arrival_time),
-        is_driver_(is_driver),
-        inst_id_(inst_id),
-        is_sequential_(is_sequential),
-        pin_name_(pin_name),
-        inst_name_(inst_name)
+  FrPin(
+    odb::dbITerm* iterm,
+    int x,
+    int y,
+    int layer,
+    float slack,
+    float arrival_time,
+    bool is_driver
+  ) : iterm_(iterm),
+      bterm_(nullptr),
+      is_port_(false),
+      x_(x),
+      y_(y),
+      layer_(layer),
+      slack_(slack),
+      arrival_time_(arrival_time),
+      is_driver_(is_driver)
   {
   }
 
-  uint pinId() const { return pin_id_; }
+  FrPin(
+    odb::dbBTerm* bterm,
+    int x,
+    int y,
+    int layer,
+    float slack,
+    float arrival_time,
+    bool is_driver
+  ) : iterm_(nullptr),
+      bterm_(bterm),
+      is_port_(true),
+      x_(x),
+      y_(y),
+      layer_(layer),
+      slack_(slack),
+      arrival_time_(arrival_time),
+      is_driver_(is_driver)
+  {
+  }
+
+  uint pinId() const;
+  odb::dbITerm* getITerm() const;
+  odb::dbBTerm* getBTerm() const;
+  bool isPort() const { return is_port_; }
   int x() const { return x_; }
   int y() const { return y_; }
   int layer() const { return layer_; }
   float slack() const { return slack_; }
   float arrivalTime() const { return arrival_time_; }
   bool isDriver() const { return is_driver_; }
-  int instId() const { return inst_id_; }
-  bool isSequential() const { return is_sequential_; }
-  const std::string& pinName() const { return pin_name_; }
-  const std::string& instName() const { return inst_name_; }
+  int instId() const;
+  bool isSequential() const;
+  std::string pinName() const;
+  std::string instName() const;
 
-  uint pin_id_;
+  odb::dbITerm* iterm_;
+  odb::dbBTerm* bterm_;
+  bool is_port_;
   int x_;
   int y_;
   int layer_;
   float slack_;
   float arrival_time_;
   bool is_driver_;
-  int inst_id_;
-  bool is_sequential_;
-  std::string pin_name_;
-  std::string inst_name_;
 };
 
 struct FrNet  // A Net is a set of connected MazePoints
