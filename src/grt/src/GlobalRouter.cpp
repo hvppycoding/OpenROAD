@@ -242,7 +242,7 @@ void GlobalRouter::globalRoute(bool save_guides, bool start_incremental,
   const char* env_var = getenv("STEINERTREE_ALGORITHM");
   const int ALLREST_CPP_ALGORITHM = 8;
 
-  if (env_var != nullptr && atoi(env_var) == ALLREST_CPP_ALGORITHM) {
+  if (call_from_main && env_var != nullptr && atoi(env_var) == ALLREST_CPP_ALGORITHM) {
     timingDrivenGlobalRoute(save_guides);
     return;
   }
@@ -329,9 +329,13 @@ void GlobalRouter::timingDrivenGlobalRoute(bool save_guides) {
   logger_->report("Start global route step");
   timingDrivenGlobalRouteStep();
 
+  logger_->report("Estimating parasitics from global routing.");
+  resizer_->estimateParasitics(rsz::ParasiticsSrc::global_routing);
+  float prev_wns = sta_->worstSlack(sta::MinMax::max());
+  float prev_tns = sta_->totalNegativeSlack(sta::MinMax::max());
+  logger_->report("WNS: {} TNS: {}", prev_wns, prev_tns);
+
   while (true) {
-    logger_->report("Estimating parasitics from global routing.");
-    resizer_->estimateParasitics(rsz::ParasiticsSrc::global_routing);
     td_stt_builder_->resetUpdatedTreesCount();
     logger_->report("Start global route step");
     td_stt_builder_->setParasiticsSrc(stt::ParasiticsSrc::GLOBAL_ROUTING);
@@ -340,6 +344,16 @@ void GlobalRouter::timingDrivenGlobalRoute(bool save_guides) {
     if (td_stt_builder_->getUpdatedTreesCount() == 0) {
       break;
     }
+    logger_->report("Estimating parasitics from global routing.");
+    resizer_->estimateParasitics(rsz::ParasiticsSrc::global_routing);
+    float wns = sta_->worstSlack(sta::MinMax::max());
+    float tns = sta_->totalNegativeSlack(sta::MinMax::max());
+    logger_->report("WNS: {} TNS: {}", wns, tns);
+    if (tns <= prev_tns) {
+      break;
+    }
+    prev_wns = wns;
+    prev_tns = tns;
   }
 
   if (save_guides) {
@@ -990,6 +1004,7 @@ bool GlobalRouter::makeFastrouteNet(Net* net) {
     int min_layer, max_layer;
     getNetLayerRange(net->getDbNet(), min_layer, max_layer);
 
+    net->setSlack(getNetSlack(net));
     FrNet* fr_net = fastroute_->addNet(
         net->getDbNet(), is_clock, root_idx, edge_cost_for_net, min_layer - 1,
         max_layer - 1, net->getSlack(), edge_cost_per_layer);

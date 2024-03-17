@@ -918,8 +918,8 @@ double RESTreeOptimizer::optimize(RESTree* tree) {
   int N = tree->numPins();
   RES best_res = tree->getRES();
 
-  logger_->report("Initial cost: " + std::to_string(prev_cost));
-  logger_->report("Initial RES: " + best_res.toString());
+  // logger_->report("Initial cost: " + std::to_string(prev_cost));
+  // logger_->report("Initial RES: " + best_res.toString());
   vector<Point> pts;
   for (int i = 0; i < N; i++) {
     pts.push_back(Point(tree->x(i), tree->y(i)));
@@ -976,8 +976,8 @@ double RESTreeOptimizer::optimize(RESTree* tree) {
     }
   }
   tree->updateRES(best_res);
-  logger_->report("Best cost: " + std::to_string(best_cost));
-  logger_->report("Best RES: " + best_res.toString());
+  // logger_->report("Best cost: " + std::to_string(best_cost));
+  // logger_->report("Best RES: " + best_res.toString());
   return best_cost;
 }
 
@@ -1102,7 +1102,7 @@ void TimingDrivenSteinerTreeBuilder::reserveNets(int n) {
 
 void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     odb::dbNet* dbnet, const std::vector<int>& x, const std::vector<int>& y,
-    bool is_clock, int driver_index, const std::vector<double>& slack,
+    bool is_clock, int driver_index, float slack, const std::vector<double>& pin_slacks,
     const std::vector<double>& arrival_time) {
   TDNet* net;
   int net_index;
@@ -1113,15 +1113,22 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     net = td_nets_[net_index];
     net->driver_index_ = driver_index;
     net->slack_ = slack;
+    net->pins_slacks_ = pin_slacks;
     net->arrival_time_ = arrival_time;
 
     for (int i = 0; i < net->n_pins_; i++) {
       TDPin* pin = net->pins_[i];
       pin->x_ = net->x_[i];
       pin->y_ = net->y_[i];
-      pin->slack_ = net->slack_[i];
+      pin->slack_ = net->pins_slacks_[i];
       pin->arrival_time_ = net->arrival_time_[i];
     }
+
+    // logger_->report("Net {} slack: {}", dbnet->getConstName(), slack);
+    // for (int i = 0; i < net->n_pins_; i++) {
+    //   logger_->report("Pin {} ({}, {}) slack: {} arrival: {}", i, net->x_[i],
+    //                   net->y_[i], net->pins_slacks_[i], net->arrival_time_[i]);
+    // }
     return;
   }
   net_index = td_nets_.size();
@@ -1132,8 +1139,9 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
   net->n_pins_ = x.size();
   net->x_ = x;
   net->y_ = y;
-  net->driver_index_ = driver_index;
   net->slack_ = slack;
+  net->driver_index_ = driver_index;
+  net->pins_slacks_ = pin_slacks;
   net->arrival_time_ = arrival_time;
 
   vector<TDPin*> pins;
@@ -1148,7 +1156,7 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     } else {
       pin->is_driver_ = false;
     }
-    pin->slack_ = net->slack_[i];
+    pin->slack_ = net->pins_slacks_[i];
     pin->arrival_time_ = net->arrival_time_[i];
     pins.push_back(pin);
   }
@@ -1170,12 +1178,18 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
   if (steiner_trees_.size() < net_index + 1) {
     steiner_trees_.resize(net_index + 1);
   }
+
+  // logger_->report("Net {} slack: {}", dbnet->getConstName(), slack);
+  // for (int i = 0; i < net->n_pins_; i++) {
+  //   logger_->report("Pin {} ({}, {}) slack: {} arrival: {}", i, net->x_[i],
+  //                   net->y_[i], net->pins_slacks_[i], net->arrival_time_[i]);
+  // }
 }
 
 Tree TimingDrivenSteinerTreeBuilder::getSteinerTree(odb::dbNet* dbnet) {
   int net_index = net_index_map_[dbnet];
-  logger_->report("Getting Steiner Tree for net {}", net_index);
-  reportSteinerTree(steiner_trees_[net_index], logger_);
+  // logger_->report("Getting Steiner Tree for net {}", net_index);
+  // reportSteinerTree(steiner_trees_[net_index], logger_);
   return steiner_trees_[net_index];
 }
 
@@ -1236,7 +1250,7 @@ void TimingDrivenSteinerTreeBuilder::optimizeAll() {
       continue;
     }
     logger_->report("Optimizing RESTree for net {}", restree->netName());
-    double prev_cost = reportRESTree(restree);
+    double prev_cost = evaluateRESTree(restree);
     overflow_manager_->removeTreeUsage(restree);
     restree_optimizer_->optimize(restree);
     overflow_manager_->addTreeUsage(restree);
@@ -1244,6 +1258,63 @@ void TimingDrivenSteinerTreeBuilder::optimizeAll() {
     logger_->report("Optimized RESTree for net {}", restree->netName());
     double new_cost = reportRESTree(restree);
     if (new_cost < prev_cost) {
+      count_updated_trees_++;
+    }
+  }
+}
+
+void TimingDrivenSteinerTreeBuilder::optimizeStep() {
+  map<float, vector<odb::dbNet*>> slack_nets;
+  for (int i = 0; i < td_nets_.size(); i++) {
+    TDNet* net = td_nets_[i];
+    float slack = net->slack_;
+    slack_nets[slack].push_back(nets_[i]);
+  }
+
+  for (auto& v : slack_nets) {
+    float slack = v.first;
+    vector<odb::dbNet*> nets = v.second;
+    
+    odb::dbNet* max_reduced_cost_net = nullptr;
+    float max_reduced_cost = 0.0;
+
+    for (odb::dbNet* net : nets) {
+      if (optimized_nets_.find(net) != optimized_nets_.end()) {
+        continue;
+      }
+      int net_index = net_index_map_[net];
+      RESTree* restree = restrees_[net_index];
+      double prev_cost = evaluateRESTree(restree);
+      RES prev_res = restree->getRES();
+      if (net_optimized_res_map_.find(net) != net_optimized_res_map_.end()) {
+        restree->updateRES(net_optimized_res_map_[net]);
+      }
+      double optimized_cost = restree_optimizer_->optimize(restree);
+      net_optimized_res_map_[net] = restree->getRES();
+      restree->updateRES(prev_res);
+
+      float reduced_cost = prev_cost - optimized_cost;
+      if (reduced_cost > max_reduced_cost) {
+        max_reduced_cost = reduced_cost;
+        max_reduced_cost_net = net;
+      }
+    }
+
+    if (max_reduced_cost == 0.0) {
+      for (odb::dbNet* net : nets) {
+        optimized_nets_.insert(net);
+      }
+    } else {
+      int net_index = net_index_map_[max_reduced_cost_net];
+      RESTree* restree = restrees_[net_index];
+      logger_->report("Optimizing RESTree for net {}", restree->netName());
+      // reportRESTree(restree);
+      overflow_manager_->removeTreeUsage(restree);
+      restree->updateRES(net_optimized_res_map_[max_reduced_cost_net]);
+      overflow_manager_->addTreeUsage(restree);
+      // reportRESTree(restree);
+      steiner_trees_[net_index] = TreeConverter(restree).convertToSteinerTree();
+      optimized_nets_.insert(max_reduced_cost_net);
       count_updated_trees_++;
     }
   }
@@ -1259,7 +1330,7 @@ void TimingDrivenSteinerTreeBuilder::buildSteinerTrees() {
     }
   } else if (parasitics_src_ == ParasiticsSrc::GLOBAL_ROUTING) {
     logger_->report("Building Initial Steiner Trees using global routing parasitics");
-    optimizeAll();
+    optimizeStep();
   }
 }
 
@@ -1339,6 +1410,14 @@ void TimingDrivenSteinerTreeBuilder::reportOverflow() {
   overflow_manager_->reportOverflow(logger_);
 }
 
+double TimingDrivenSteinerTreeBuilder::evaluateRESTree(RESTree* tree) {
+  double detour = detour_evaluator_->getCost(tree);
+  double length = length_evaluator_->getCost(tree);
+  double overflow = overflow_evaluator_->getCost(tree);
+  double cost = detour + length + overflow;
+  return cost;
+}
+
 double TimingDrivenSteinerTreeBuilder::reportRESTree(RESTree* tree) {
   double detour = detour_evaluator_->getCost(tree);
   double length = length_evaluator_->getCost(tree);
@@ -1406,7 +1485,7 @@ RESTree* TimingDrivenSteinerTreeBuilder::generateRandomRESTree(
   net->x_ = xs;
   net->y_ = ys;
   net->driver_index_ = driver_index;
-  net->slack_ = slacks;
+  net->pins_slacks_ = slacks;
   net->arrival_time_.resize(n_pins, 0.0);
   net->pins_ = pins;
 

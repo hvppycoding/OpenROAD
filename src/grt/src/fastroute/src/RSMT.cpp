@@ -1572,16 +1572,16 @@ void FastRouteCore::gen_brk_ALLCPP() {
       continue;
     }
     FrNet* net = nets_[i];
-    vector<double> slack;
+    vector<double> pin_slacks;
     vector<double> arrival_time;
     for (int j = 0; j < net->getNumPins(); j++) {
       FrPin pin = net->getFrPin(j);
-      slack.push_back(pin.slack());
+      pin_slacks.push_back(pin.slack());
       arrival_time.push_back(pin.arrivalTime());
     }
     td_stt_builder_->addOrUpdateNet(net->getDbNet(), net->getPinX(),
                                     net->getPinY(), net->isClock(),
-                                    net->getDriverIdx(), slack, arrival_time);
+                                    net->getDriverIdx(), net->getSlack(), pin_slacks, arrival_time);
   }
   td_stt_builder_->buildSteinerTrees();
   vector<Tree> td_rsmts;

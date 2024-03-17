@@ -3,6 +3,7 @@
 #include <boost/heap/d_ary_heap.hpp>
 #include <deque>
 #include <map>
+#include <set>
 #include <numeric>
 #include <vector>
 
@@ -73,7 +74,8 @@ class TDNet {
   std::vector<int> x_;
   std::vector<int> y_;
   int driver_index_ = -1;
-  std::vector<double> slack_;
+  float slack_ = 0.0;
+  std::vector<double> pins_slacks_;
   std::vector<double> arrival_time_;
   std::vector<TDPin*> pins_;
 };
@@ -338,11 +340,12 @@ class TimingDrivenSteinerTreeBuilder {
   void setVEdge(int x, int y, int cap, int usage, int red);
   void setHEdge(int x, int y, int cap, int usage, int red);
   void optimizeAll();
+  void optimizeStep();
   void reserveNets(int n);
   void initializeRESTrees();
   void addOrUpdateNet(odb::dbNet* dbnet, const std::vector<int>& x,
                       const std::vector<int>& y, bool is_clock,
-                      int driver_index, const std::vector<double>& slack,
+                      int driver_index, float slack, const std::vector<double>& pin_slacks,
                       const std::vector<double>& arrival_time);
   Tree getSteinerTree(odb::dbNet* dbnet);
   void clearNets();
@@ -352,6 +355,7 @@ class TimingDrivenSteinerTreeBuilder {
 
   vector<RES> runREST(const vector<vector<TDPoint>>& input_data);
   void reportOverflow();
+  double evaluateRESTree(RESTree* tree);
   double reportRESTree(RESTree* tree);
   RESTree* generateRandomRESTree(int n_pins, int x_grid, int y_grid,
                                  double slack_mean, double slack_std);
@@ -366,6 +370,8 @@ class TimingDrivenSteinerTreeBuilder {
   OverflowManager* overflow_manager_;
   RESTreeOptimizer* restree_optimizer_;
   std::map<odb::dbNet*, int> net_index_map_;
+  std::set<odb::dbNet*> optimized_nets_;
+  std::map<odb::dbNet*, RES> net_optimized_res_map_;
   vector<odb::dbNet*> nets_;
   vector<TDNet*> td_nets_;
   vector<RESTree*> restrees_;
