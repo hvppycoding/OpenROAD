@@ -198,7 +198,7 @@ class GlobalRouter : public ant::GlobalRouteSource
                    bool start_incremental = false,
                    bool end_incremental = false,
                    bool call_from_main = false);
-  void timingDrivenGlobalRoute(bool save_guides);
+  void timingDrivenGlobalRoute(bool save_guides, bool once);
   void timingDrivenGlobalRouteStep();
   void saveCongestion();
   NetRouteMap& getRoutes() { return routes_; }

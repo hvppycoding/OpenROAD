@@ -1294,6 +1294,9 @@ void TimingDrivenSteinerTreeBuilder::optimizeStep() {
       restree->updateRES(prev_res);
 
       float reduced_cost = prev_cost - optimized_cost;
+      if (reduced_cost == 0.0) {
+        optimized_nets_.insert(net);
+      }
       if (reduced_cost > max_reduced_cost) {
         max_reduced_cost = reduced_cost;
         max_reduced_cost_net = net;
@@ -1332,6 +1335,17 @@ void TimingDrivenSteinerTreeBuilder::buildSteinerTrees() {
     logger_->report("Building Initial Steiner Trees using global routing parasitics");
     optimizeStep();
   }
+}
+
+void TimingDrivenSteinerTreeBuilder::buildSteinerTreesAll() {
+  assert(parasitics_src_ == ParasiticsSrc::PLACEMENT);
+  logger_->report("Building Initial Steiner Trees using placement parasitics");
+  initializeRESTrees();
+  for (int i = 0; i < restrees_.size(); i++) {
+    RESTree* restree = restrees_[i];
+    steiner_trees_[i] = TreeConverter(restree).convertToSteinerTree();
+  }
+  optimizeAll();
 }
 
 int TimingDrivenSteinerTreeBuilder::getUpdatedTreesCount() {

@@ -969,6 +969,7 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
   const int TIMING_DRIVEN_ALGORITHM = 6;
   const int ALLREST_ALGORITHM = 7;
   const int ALLREST_CPP_ALGORITHM = 8;
+  const int ALLREST_CPPONCE_ALGORITHM = 9;
 
   int algorithm;
   if (env_var == nullptr) {
@@ -1008,6 +1009,8 @@ NetRouteMap FastRouteCore::run(bool call_from_main)
     gen_brk_ALL();
   } else if (algorithm == ALLREST_CPP_ALGORITHM) {
     gen_brk_ALLCPP();
+  } else if (algorithm == ALLREST_CPPONCE_ALGORITHM) {
+    gen_brk_CPPONCE();
   } else {
     // Default
     logger_->report("Jayoung: DEFAULT_ALGORITHM");

@@ -397,6 +397,7 @@ class FastRouteCore
   void gen_brk_TD();
   void gen_brk_ALL();
   void gen_brk_ALLCPP();
+  void gen_brk_CPPONCE();
   void fluteNormal(const int netID,
                    const std::vector<int>& x,
                    const std::vector<int>& y,

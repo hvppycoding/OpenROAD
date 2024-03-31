@@ -241,9 +241,14 @@ void GlobalRouter::globalRoute(bool save_guides, bool start_incremental,
                                bool end_incremental, bool call_from_main) {
   const char* env_var = getenv("STEINERTREE_ALGORITHM");
   const int ALLREST_CPP_ALGORITHM = 8;
+  const int CPPONCE_ALGORITHM = 9;
 
   if (call_from_main && env_var != nullptr && atoi(env_var) == ALLREST_CPP_ALGORITHM) {
-    timingDrivenGlobalRoute(save_guides);
+    timingDrivenGlobalRoute(save_guides, false);
+    return;
+  }
+  if (call_from_main && env_var != nullptr && atoi(env_var) == CPPONCE_ALGORITHM) {
+    timingDrivenGlobalRoute(save_guides, true);
     return;
   }
   
@@ -318,7 +323,7 @@ void GlobalRouter::globalRoute(bool save_guides, bool start_incremental,
   }
 }
 
-void GlobalRouter::timingDrivenGlobalRoute(bool save_guides) {
+void GlobalRouter::timingDrivenGlobalRoute(bool save_guides, bool once) {
   // Estimate parasitics for timing-driven global routing
   logger_->report("Estimating parasitics from placement.");
   resizer_->estimateParasitics(rsz::ParasiticsSrc::placement);
@@ -335,7 +340,7 @@ void GlobalRouter::timingDrivenGlobalRoute(bool save_guides) {
   float prev_tns = sta_->totalNegativeSlack(sta::MinMax::max());
   logger_->report("WNS: {} TNS: {}", prev_wns, prev_tns);
 
-  while (true) {
+  while (!once) {
     td_stt_builder_->resetUpdatedTreesCount();
     logger_->report("Start global route step");
     td_stt_builder_->setParasiticsSrc(stt::ParasiticsSrc::GLOBAL_ROUTING);

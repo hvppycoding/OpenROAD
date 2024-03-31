@@ -350,6 +350,7 @@ class TimingDrivenSteinerTreeBuilder {
   Tree getSteinerTree(odb::dbNet* dbnet);
   void clearNets();
   void buildSteinerTrees();
+  void buildSteinerTreesAll();
   int getUpdatedTreesCount();
   void resetUpdatedTreesCount();
 
