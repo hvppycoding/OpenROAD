@@ -3,8 +3,8 @@
 #include <boost/heap/d_ary_heap.hpp>
 #include <deque>
 #include <map>
-#include <set>
 #include <numeric>
+#include <set>
 #include <vector>
 
 #include "odb/geom.h"
@@ -64,6 +64,10 @@ class TDPin {
   bool is_driver_ = false;
   double slack_ = 0.0;
   double arrival_time_ = 0.0;
+  double cell_delay_ = 0.0;
+  double load_pin_cap_ = 0.0;
+  double load_wire_cap_ = 0.0;
+  double pin_cap_ = 0.0;
 };
 
 class TDNet {
@@ -101,6 +105,8 @@ class RES {
   void add(const RE& re);
   void erase(int i);
   string toString() const;
+  bool operator==(const RES& other) const;
+  bool operator!=(const RES& other) const;
 
   std::vector<RE>::iterator begin();
   std::vector<RE>::iterator end();
@@ -173,6 +179,7 @@ class OverflowManager {
 class RESTreeAbstractEvaluator {
  public:
   RESTreeAbstractEvaluator();
+  virtual void initialize(RESTree* original) {};
   virtual double getCost(RESTree* tree) = 0;
   double weight() const;
   void setWeight(double weight);
@@ -184,6 +191,21 @@ class RESTreeAbstractEvaluator {
 class RESTreeLengthEvaluator : public RESTreeAbstractEvaluator {
  public:
   double getCost(RESTree* tree);
+};
+
+class RESTreeTotalLengthTimingEvaluator : public RESTreeAbstractEvaluator {
+ public:
+  RESTreeTotalLengthTimingEvaluator(double wire_r, double wire_c, int tile_size,
+                                    int dbu_per_micron);
+  void initialize(RESTree* original);
+  double getCost(RESTree* tree);
+
+ private:
+  std::map<RESTree*, int> original_total_lengths_;
+  double wire_r_;
+  double wire_c_;
+  int tile_size_;
+  int dbu_per_micron_;
 };
 
 class RESTreeOverflowEvaluator : public RESTreeAbstractEvaluator {
@@ -309,21 +331,57 @@ class TreeConverter {
   vector<ConverterNode*> nodes_;
 };
 
+vector<int> calculateManhattanDistancesFromDriver(RESTree* tree);
+map<int, int> calculatePathlengthsFromDriver(RESTree* tree);
+void calculatePathlengthsFromDriverHelper(SteinerNode* node, int length,
+                                          map<int, int>& pathlengths);
+
 class RESTreeDetourEvaluator : public RESTreeAbstractEvaluator {
  public:
   double getWeight(TDPin* pin);
   double getCost(RESTree* tree);
-  vector<int> calculateManhattanDistancesFromDriver(RESTree* tree);
-  map<int, int> calculatePathlengthsFromDriver(RESTree* tree);
-  void calculatePathlengthsFromDriverHelper(SteinerNode* node, int length,
-                                            map<int, int>& pathlengths);
+};
+
+class RESTreeLengthTimingEvaluator : public RESTreeAbstractEvaluator {
+ public:
+  RESTreeLengthTimingEvaluator(double wire_r, double wire_c, int tile_size,
+                               int dbu_per_micron);
+  void initialize(RESTree* original);
+  double slackToCost(double slack);
+  double getCost(RESTree* tree);
+
+ private:
+  std::map<TDPin*, int> original_pathlengths_;
+  double wire_r_;
+  double wire_c_;
+  int tile_size_;
+  int dbu_per_micron_;
+};
+
+class RESTreeTimingDrivenEvaluator : public RESTreeAbstractEvaluator {
+ public:
+  RESTreeTimingDrivenEvaluator(double wire_r, double wire_c, int tile_size,
+                               int dbu_per_micron);
+  void initialize(RESTree* original);
+  double slackToCostReduce(double prev_slack, double slack);
+  double getCost(RESTree* tree);
+
+ private:
+  std::map<RESTree*, int> original_total_lengths_;
+  std::map<TDPin*, int> original_pathlengths_;
+  double wire_r_;
+  double wire_c_;
+  int tile_size_;
+  int dbu_per_micron_;
 };
 
 class RESTreeOptimizer {
  public:
-  RESTreeOptimizer(vector<RESTreeAbstractEvaluator*> evaluators, Logger* logger);
+  RESTreeOptimizer(vector<RESTreeAbstractEvaluator*> evaluators,
+                   Logger* logger);
   double optimize(RESTree* tree);
-  double getCost(RESTree* tree);
+  void initializeEvaluators(RESTree* original);
+  double getCost(RESTree* tree, bool debug = false);
   vector<vector<int>> getNearestNeighbors(const vector<Point>& pts);
 
   vector<RESTreeAbstractEvaluator*> evaluators_;
@@ -335,18 +393,29 @@ class TimingDrivenSteinerTreeBuilder {
   TimingDrivenSteinerTreeBuilder();
   ~TimingDrivenSteinerTreeBuilder();
   void init(odb::dbDatabase* db, Logger* logger);
+  void setWireRC(double r, double c);
   void setGrids(int x_grid, int y_grid);
+  void setTileSize(int tile_size);
+  void setDbuPerMicron(int dbu_per_micron);
   void setParasiticsSrc(ParasiticsSrc parasitics_src);
+  void saveRES();
+  void useSavedRES(bool use_saved_res);
   void setVEdge(int x, int y, int cap, int usage, int red);
   void setHEdge(int x, int y, int cap, int usage, int red);
   void optimizeAll();
   void optimizeStep();
   void reserveNets(int n);
   void initializeRESTrees();
+  void initializeOptimizer();
   void addOrUpdateNet(odb::dbNet* dbnet, const std::vector<int>& x,
                       const std::vector<int>& y, bool is_clock,
-                      int driver_index, float slack, const std::vector<double>& pin_slacks,
-                      const std::vector<double>& arrival_time);
+                      int driver_index, float slack,
+                      const std::vector<double>& pin_slacks,
+                      const std::vector<double>& arrival_time,
+                      const std::vector<double>& cell_delays,
+                      const std::vector<double>& load_pin_caps,
+                      const std::vector<double>& load_wire_caps,
+                      const std::vector<double>& pin_caps);
   Tree getSteinerTree(odb::dbNet* dbnet);
   void clearNets();
   void buildSteinerTrees();
@@ -370,9 +439,17 @@ class TimingDrivenSteinerTreeBuilder {
   odb::dbDatabase* db_;
   OverflowManager* overflow_manager_;
   RESTreeOptimizer* restree_optimizer_;
+  bool use_saved_res_ = false;
+  int tile_size_ = 0;
+  int dbu_per_micron_ = 0;
+  int x_grid_ = 0;
+  int y_grid_ = 0;
+  double wire_r_ = 0.0;
+  double wire_c_ = 0.0;
   std::map<odb::dbNet*, int> net_index_map_;
   std::set<odb::dbNet*> optimized_nets_;
   std::map<odb::dbNet*, RES> net_optimized_res_map_;
+  std::map<odb::dbNet*, RES> saved_res_map_;
   vector<odb::dbNet*> nets_;
   vector<TDNet*> td_nets_;
   vector<RESTree*> restrees_;
@@ -380,6 +457,9 @@ class TimingDrivenSteinerTreeBuilder {
   RESTreeDetourEvaluator* detour_evaluator_;
   RESTreeLengthEvaluator* length_evaluator_;
   RESTreeOverflowEvaluator* overflow_evaluator_;
+  RESTreeTotalLengthTimingEvaluator* total_length_timing_evaluator_;
+  RESTreeLengthTimingEvaluator* length_timing_evaluator_;
+  RESTreeTimingDrivenEvaluator* timing_driven_evaluator_;
   int count_updated_trees_;
 };
 

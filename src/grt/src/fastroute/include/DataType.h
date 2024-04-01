@@ -95,7 +95,11 @@ struct FrPin
     int layer,
     float slack,
     float arrival_time,
-    bool is_driver
+    bool is_driver,
+    float cell_delay,
+    float load_pin_cap,
+    float load_wire_cap,
+    float pin_cap
   ) : iterm_(iterm),
       bterm_(nullptr),
       is_port_(false),
@@ -104,7 +108,11 @@ struct FrPin
       layer_(layer),
       slack_(slack),
       arrival_time_(arrival_time),
-      is_driver_(is_driver)
+      is_driver_(is_driver),
+      cell_delay_(cell_delay),
+      load_pin_cap_(load_pin_cap),
+      load_wire_cap_(load_wire_cap),
+      pin_cap_(pin_cap)
   {
   }
 
@@ -115,7 +123,11 @@ struct FrPin
     int layer,
     float slack,
     float arrival_time,
-    bool is_driver
+    bool is_driver,
+    float cell_delay,
+    float load_pin_cap,
+    float load_wire_cap,
+    float pin_cap
   ) : iterm_(nullptr),
       bterm_(bterm),
       is_port_(true),
@@ -124,7 +136,11 @@ struct FrPin
       layer_(layer),
       slack_(slack),
       arrival_time_(arrival_time),
-      is_driver_(is_driver)
+      is_driver_(is_driver),
+      cell_delay_(cell_delay),
+      load_pin_cap_(load_pin_cap),
+      load_wire_cap_(load_wire_cap),
+      pin_cap_(pin_cap)
   {
   }
 
@@ -138,6 +154,10 @@ struct FrPin
   float slack() const { return slack_; }
   float arrivalTime() const { return arrival_time_; }
   bool isDriver() const { return is_driver_; }
+  float cellDelay() const { return cell_delay_; }
+  float loadPinCap() const { return load_pin_cap_; }
+  float loadWireCap() const { return load_wire_cap_; }
+  float pinCap() const { return pin_cap_; }
   int instId() const;
   bool isSequential() const;
   std::string pinName() const;
@@ -152,6 +172,10 @@ struct FrPin
   float slack_;
   float arrival_time_;
   bool is_driver_;
+  float cell_delay_;
+  float load_pin_cap_;
+  float load_wire_cap_;
+  float pin_cap_;
 };
 
 struct FrNet  // A Net is a set of connected MazePoints

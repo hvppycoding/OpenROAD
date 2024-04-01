@@ -12,6 +12,7 @@
 namespace stt {
 
 static Logger* __logger__ = nullptr;
+static bool __verbose__ = false;
 
 static void reportSteinerBranches(const stt::Tree& tree, Logger* logger) {
   for (int i = 0; i < tree.branchCount(); i++) {
@@ -79,6 +80,21 @@ string RES::toString() const {
          std::to_string(res_[i].second) + "), ";
   }
   return s;
+}
+bool RES::operator==(const RES& other) const {
+  if (res_.size() != other.res_.size()) {
+    return false;
+  }
+  for (int i = 0; i < res_.size(); i++) {
+    if (res_[i] != other.res_[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool RES::operator!=(const RES& other) const {
+  return !(*this == other);
 }
 
 std::vector<RE>::iterator RES::begin() { return res_.begin(); }
@@ -333,6 +349,49 @@ void RESTreeAbstractEvaluator::setWeight(double weight) { weight_ = weight; }
 
 double RESTreeLengthEvaluator::getCost(RESTree* tree) {
   return tree->length() * weight();
+}
+
+RESTreeTotalLengthTimingEvaluator::RESTreeTotalLengthTimingEvaluator(
+    double wire_r, double wire_c, int tile_size, int dbu_per_micron)
+    : wire_r_(wire_r),
+      wire_c_(wire_c),
+      tile_size_(tile_size),
+      dbu_per_micron_(dbu_per_micron) {}
+
+void RESTreeTotalLengthTimingEvaluator::initialize(RESTree* tree) {
+  original_total_lengths_[tree] = tree->length();
+}
+
+double RESTreeTotalLengthTimingEvaluator::getCost(RESTree* tree) {
+  double original_total_length = original_total_lengths_[tree];
+  double original_average_length =
+      original_total_length / (tree->numPins() - 1);
+  double original_total_length_um =
+      original_average_length * tile_size_ / dbu_per_micron_;
+  double original_total_length_meter = original_total_length_um / 1e6;
+  double original_r_ = wire_r_ * original_total_length_meter;
+  double original_c_ = wire_c_ * original_total_length_meter;
+  double original_total_delay =
+      original_r_ * original_c_ * 0.5 * (tree->numPins() - 1);
+
+  double total_length = tree->length();
+  double average_length = total_length / (tree->numPins() - 1);
+  double total_length_um = average_length * tile_size_ / dbu_per_micron_;
+  double total_length_meter = total_length_um / 1e6;
+  double r_ = wire_r_ * total_length_meter;
+  double c_ = wire_c_ * total_length_meter;
+  double total_delay = r_ * c_ * 0.5 * (tree->numPins() - 1);
+  double delay_change = total_delay - original_total_delay;
+
+  if (__verbose__) {
+    __logger__->report("Original total length: {}", original_total_length);
+    __logger__->report("New total length: {}", total_length);
+    __logger__->report("Original total delay: {}", original_total_delay);
+    __logger__->report("New total delay: {}", total_delay);
+    __logger__->report("Delay change: {}", delay_change);
+  }
+
+  return delay_change * weight();
 }
 
 RESTreeOverflowEvaluator::RESTreeOverflowEvaluator(
@@ -868,8 +927,7 @@ double RESTreeDetourEvaluator::getCost(RESTree* tree) {
   return total_detour_cost * weight();
 }
 
-vector<int> RESTreeDetourEvaluator::calculateManhattanDistancesFromDriver(
-    RESTree* tree) {
+vector<int> calculateManhattanDistancesFromDriver(RESTree* tree) {
   vector<int> distances;
   int drv_x = tree->x(tree->driverIndex());
   int drv_y = tree->y(tree->driverIndex());
@@ -881,8 +939,7 @@ vector<int> RESTreeDetourEvaluator::calculateManhattanDistancesFromDriver(
   return distances;
 }
 
-map<int, int> RESTreeDetourEvaluator::calculatePathlengthsFromDriver(
-    RESTree* tree) {
+map<int, int> calculatePathlengthsFromDriver(RESTree* tree) {
   SteinerGraph* graph = TreeConverter(tree).convertToSteinerGraph();
   int driver_index = tree->driverIndex();
   SteinerNode* driver_node = graph->getNode(driver_index);
@@ -895,8 +952,8 @@ map<int, int> RESTreeDetourEvaluator::calculatePathlengthsFromDriver(
   return pathlengths;
 }
 
-void RESTreeDetourEvaluator::calculatePathlengthsFromDriverHelper(
-    SteinerNode* node, int length, map<int, int>& pathlengths) {
+void calculatePathlengthsFromDriverHelper(SteinerNode* node, int length,
+                                          map<int, int>& pathlengths) {
   pathlengths[node->index()] = length;
 
   for (SteinerNode* neighbor : node->getNeighbors()) {
@@ -909,6 +966,225 @@ void RESTreeDetourEvaluator::calculatePathlengthsFromDriverHelper(
   }
 }
 
+RESTreeLengthTimingEvaluator::RESTreeLengthTimingEvaluator(double wire_r,
+                                                           double wire_c,
+                                                           int tile_size,
+                                                           int dbu_per_micron)
+    : wire_r_(wire_r),
+      wire_c_(wire_c),
+      tile_size_(tile_size),
+      dbu_per_micron_(dbu_per_micron) {}
+
+void RESTreeLengthTimingEvaluator::initialize(RESTree* tree) {
+  map<int, int> pathlengths = calculatePathlengthsFromDriver(tree);
+  for (int i = 0; i < tree->numPins(); i++) {
+    original_pathlengths_[tree->getPin(i)] = pathlengths[i];
+  }
+}
+
+double RESTreeLengthTimingEvaluator::slackToCost(double slack) {
+  double margin = 10E-12;
+  double marginal_slack = slack - margin;
+  if (marginal_slack < 0) {
+    return -marginal_slack;
+  } else {
+    return -marginal_slack * 0.2;
+  }
+}
+
+double RESTreeLengthTimingEvaluator::getCost(RESTree* tree) {
+  map<int, int> pathlengths = calculatePathlengthsFromDriver(tree);
+  double total_cost = 0;
+  for (int i = 0; i < tree->numPins(); i++) {
+    TDPin* pin = tree->getPin(i);
+    int original_pathlength = original_pathlengths_[pin];
+    double original_pathlength_um =
+        original_pathlength * tile_size_ / dbu_per_micron_;
+    double original_pathlength_meter = original_pathlength_um / 1e6;
+    double original_r_ = wire_r_ * original_pathlength_meter;
+    double original_c_ = wire_c_ * original_pathlength_meter;
+    double original_delay = original_r_ * original_c_ / 2.0;
+
+    int pathlength = pathlengths[i];
+    double pathlength_um = pathlength * tile_size_ / dbu_per_micron_;
+    double pathlength_meter = pathlength_um / 1e6;
+    double r_ = wire_r_ * pathlength_meter;
+    double c_ = wire_c_ * pathlength_meter;
+    double delay = r_ * c_ / 2.0;
+
+    double diff_delay = delay - original_delay;
+    // if (diff_delay < 0) {
+    //   __logger__->report("Previous delay: {}", original_delay);
+    //   __logger__->report("Current delay: {}", delay);
+    // }
+
+    double previous_slack = pin->slack_;
+
+    double previous_cost = slackToCost(previous_slack);
+    double estimated_slack = pin->slack_ - diff_delay;
+    double estimated_cost = slackToCost(estimated_slack);
+    double diff_cost = estimated_cost - previous_cost;
+
+    if (__verbose__) {
+      __logger__->report(
+          "Pin: {}, pl: {}, pl': {}, slack: {}, slack': {}, diff_slack: {}, "
+          "cost: {}",
+
+          pin->index_, original_pathlength, pathlength, previous_slack,
+          estimated_slack, estimated_slack - previous_slack, diff_cost);
+    }
+    total_cost += diff_cost;
+  }
+  if (__verbose__) {
+    __logger__->report("Total cost: {}", total_cost);
+  }
+
+  return total_cost * weight();
+}
+
+RESTreeTimingDrivenEvaluator::RESTreeTimingDrivenEvaluator(double wire_r,
+                                                           double wire_c,
+                                                           int tile_size,
+                                                           int dbu_per_micron)
+    : wire_r_(wire_r),
+      wire_c_(wire_c),
+      tile_size_(tile_size),
+      dbu_per_micron_(dbu_per_micron) {}
+
+void RESTreeTimingDrivenEvaluator::initialize(RESTree* original) {
+  original_total_lengths_[original] = original->length();
+  map<int, int> pathlengths = calculatePathlengthsFromDriver(original);
+  for (int i = 0; i < original->numPins(); i++) {
+    original_pathlengths_[original->getPin(i)] = pathlengths[i];
+  }
+}
+
+class LinearSegment {
+ public:
+  double start_x;
+  double end_x;
+  double slope;
+  double intercept;
+};
+
+static double integrateSegment(const LinearSegment& segment, double x_start,
+                               double x_end) {
+  // 실제 적분을 계산할 구간의 시작점과 끝점을 결정
+  double real_start = std::max(segment.start_x, x_start);
+  double real_end = std::min(segment.end_x, x_end);
+
+  if (real_start >= real_end) {
+    // 구간이 겹치지 않으면 적분값은 0
+    return 0;
+  }
+
+  // 구간의 실제 시작점과 끝점에서의 함수값 계산
+  double value_start = segment.slope * real_start + segment.intercept;
+  double value_end = segment.slope * real_end + segment.intercept;
+
+  // 평균값에 실제 적분할 구간 길이를 곱해 적분값 계산
+  double averageValue = 0.5 * (value_start + value_end);
+  return averageValue * (real_end - real_start);
+}
+
+double RESTreeTimingDrivenEvaluator::slackToCostReduce(double prev_slack,
+                                                       double slack) {
+  vector<LinearSegment> segments = {{-1E-6, 15E-12, -0.5 / 10E-12, 1.0},
+                                    {15E-12, +1E-6, 0, 0.25}};
+
+  bool flipped = prev_slack > slack;
+  double integral = 0;
+  for (const LinearSegment& segment : segments) {
+    double start = flipped ? slack : prev_slack;
+    double end = flipped ? prev_slack : slack;
+    integral += integrateSegment(segment, start, end);
+  }
+
+  if (flipped) {
+    integral = -integral;
+  }
+
+  return integral;
+}
+
+double RESTreeTimingDrivenEvaluator::getCost(RESTree* tree) {
+  TDPin* driver_pin = tree->getPin(tree->driverIndex());
+  double original_cell_delay = driver_pin->cell_delay_;
+  double original_pin_cap = driver_pin->load_pin_cap_;
+  double original_wire_cap = driver_pin->load_wire_cap_;
+  double original_total_cap = original_pin_cap + original_wire_cap;
+  double estimated_wire_cap =
+      original_wire_cap * tree->length() / original_total_lengths_[tree];
+  double estimated_total_cap = original_pin_cap + estimated_wire_cap;
+
+  double estimated_cell_delay =
+      original_cell_delay * (estimated_total_cap / original_total_cap);
+  double increased_cell_delay = estimated_cell_delay - original_cell_delay;
+
+  float drv_arrival_time = driver_pin->arrival_time_;
+
+  if (__verbose__) {
+    __logger__->report("Total length: {} -> {}", original_total_lengths_[tree],
+                       tree->length());
+    __logger__->report("Original cell delay: {}", original_cell_delay);
+    __logger__->report("Estimated cell delay: {}", estimated_cell_delay);
+    __logger__->report("Increased cell delay: {}", increased_cell_delay);
+  }
+
+  map<int, int> pathlengths = calculatePathlengthsFromDriver(tree);
+  double total_cost = 0;
+  for (int i = 0; i < tree->numPins(); i++) {
+    if (i == tree->driverIndex()) {
+      continue;
+    }
+    TDPin* pin = tree->getPin(i);
+    double pin_cap = pin->pin_cap_;
+    if (__verbose__) {
+      __logger__->report("Pin: {}, pin_cap: {}", pin->index_, pin_cap);
+    }
+    int original_pathlength = original_pathlengths_[pin];
+    double original_pathlength_um =
+        original_pathlength * tile_size_ / dbu_per_micron_;
+    double original_pathlength_meter = original_pathlength_um / 1e6;
+    double original_r_ = wire_r_ * original_pathlength_meter;
+    // double original_c_ = wire_c_ * original_pathlength_meter;
+    double original_delay = original_r_ * (original_total_cap - pin_cap) * 0.5 +
+                            original_r_ * pin_cap;
+
+    int pathlength = pathlengths[i];
+    double pathlength_um = pathlength * tile_size_ / dbu_per_micron_;
+    double pathlength_meter = pathlength_um / 1e6;
+    double r_ = wire_r_ * pathlength_meter;
+    double c_ = wire_c_ * pathlength_meter;
+    double delay = r_ * (estimated_total_cap - pin_cap) * 0.5 + r_ * pin_cap;
+
+    double diff_elmore_delay = delay - original_delay;
+    // if (diff_delay < 0) {
+    //   __logger__->report("Previous delay: {}", original_delay);
+    //   __logger__->report("Current delay: {}", delay);
+    // }
+
+    double previous_slack = pin->slack_;
+    double diff_all_delay = diff_elmore_delay + increased_cell_delay;
+    double estimated_slack = pin->slack_ - diff_all_delay;
+    double reduced_cost = slackToCostReduce(previous_slack, estimated_slack);
+
+    if (__verbose__) {
+      __logger__->report(
+          "Pin: {}, pl: {}, pl': {}, slack: {}, slack': {}, diff_delay: {}, "
+          "reduced_cost: {}",
+          pin->index_, original_pathlength, pathlength, previous_slack,
+          estimated_slack, diff_all_delay, reduced_cost);
+    }
+    total_cost += -reduced_cost;
+  }
+  if (__verbose__) {
+    __logger__->report("Total cost: {}", total_cost);
+  }
+
+  return total_cost * weight();
+}
+
 RESTreeOptimizer::RESTreeOptimizer(vector<RESTreeAbstractEvaluator*> evaluators,
                                    Logger* logger)
     : evaluators_(evaluators), logger_(logger) {}
@@ -917,6 +1193,7 @@ double RESTreeOptimizer::optimize(RESTree* tree) {
   double prev_cost = getCost(tree);
   int N = tree->numPins();
   RES best_res = tree->getRES();
+  RES initial_res = best_res;
 
   // logger_->report("Initial cost: " + std::to_string(prev_cost));
   // logger_->report("Initial RES: " + best_res.toString());
@@ -981,7 +1258,13 @@ double RESTreeOptimizer::optimize(RESTree* tree) {
   return best_cost;
 }
 
-double RESTreeOptimizer::getCost(RESTree* tree) {
+void RESTreeOptimizer::initializeEvaluators(RESTree* original) {
+  for (RESTreeAbstractEvaluator* evaluator : evaluators_) {
+    evaluator->initialize(original);
+  }
+}
+
+double RESTreeOptimizer::getCost(RESTree* tree, bool debug /*= false*/) {
   double cost = 0.0;
   for (RESTreeAbstractEvaluator* evaluator : evaluators_) {
     cost += evaluator->getCost(tree);
@@ -1049,8 +1332,10 @@ vector<vector<int>> RESTreeOptimizer::getNearestNeighbors(
 }
 
 TimingDrivenSteinerTreeBuilder::TimingDrivenSteinerTreeBuilder()
-    : db_(nullptr), logger_(nullptr), restree_optimizer_(nullptr), parasitics_src_(ParasiticsSrc::NONE)
-    {}
+    : db_(nullptr),
+      logger_(nullptr),
+      restree_optimizer_(nullptr),
+      parasitics_src_(ParasiticsSrc::NONE) {}
 
 TimingDrivenSteinerTreeBuilder::~TimingDrivenSteinerTreeBuilder() {
   clearNets();
@@ -1061,26 +1346,43 @@ void TimingDrivenSteinerTreeBuilder::init(odb::dbDatabase* db, Logger* logger) {
   logger_ = logger;
   __logger__ = logger;
   overflow_manager_ = new OverflowManager();
-  detour_evaluator_ = new RESTreeDetourEvaluator();
-  detour_evaluator_->setWeight(0.3);
-  length_evaluator_ = new RESTreeLengthEvaluator();
-  length_evaluator_->setWeight(0.7);
-  overflow_evaluator_ = new RESTreeOverflowEvaluator(overflow_manager_);
-  overflow_evaluator_->setWeight(0.2);
-  std::vector<RESTreeAbstractEvaluator*> evaluators;
-  evaluators.push_back(detour_evaluator_);
-  evaluators.push_back(length_evaluator_);
-  evaluators.push_back(overflow_evaluator_);
-  restree_optimizer_ = new RESTreeOptimizer(evaluators, logger_);
   logger_->report("Timing-driven Steiner Tree Builder initialized");
 }
 
-void TimingDrivenSteinerTreeBuilder::setGrids(int x_grid, int y_grid) {
-  overflow_manager_->init(x_grid, y_grid);
+void TimingDrivenSteinerTreeBuilder::setWireRC(double r, double c) {
+  wire_r_ = r;
+  wire_c_ = c;
 }
 
-void TimingDrivenSteinerTreeBuilder::setParasiticsSrc(ParasiticsSrc parasitics_src) {
+void TimingDrivenSteinerTreeBuilder::setGrids(int x_grid, int y_grid) {
+  x_grid_ = x_grid;
+  y_grid_ = y_grid;
+  overflow_manager_->init(x_grid_, y_grid_);
+}
+
+void TimingDrivenSteinerTreeBuilder::setTileSize(int tile_size) {
+  tile_size_ = tile_size;
+}
+
+void TimingDrivenSteinerTreeBuilder::setDbuPerMicron(int dbu_per_micron) {
+  dbu_per_micron_ = dbu_per_micron;
+}
+
+void TimingDrivenSteinerTreeBuilder::setParasiticsSrc(
+    ParasiticsSrc parasitics_src) {
   parasitics_src_ = parasitics_src;
+}
+
+void TimingDrivenSteinerTreeBuilder::saveRES() {
+  for (int i = 0; i < td_nets_.size(); i++) {
+    odb::dbNet* dbnet = nets_[i];
+    RESTree* tree = restrees_[i];
+    saved_res_map_[dbnet] = tree->getRES();
+  }
+}
+
+void TimingDrivenSteinerTreeBuilder::useSavedRES(bool use_saved_res) {
+  use_saved_res_ = use_saved_res;
 }
 
 void TimingDrivenSteinerTreeBuilder::setVEdge(int x, int y, int cap, int usage,
@@ -1102,8 +1404,13 @@ void TimingDrivenSteinerTreeBuilder::reserveNets(int n) {
 
 void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     odb::dbNet* dbnet, const std::vector<int>& x, const std::vector<int>& y,
-    bool is_clock, int driver_index, float slack, const std::vector<double>& pin_slacks,
-    const std::vector<double>& arrival_time) {
+    bool is_clock, int driver_index, float slack,
+    const std::vector<double>& pin_slacks,
+    const std::vector<double>& arrival_time,
+    const std::vector<double>& cell_delays,
+    const std::vector<double>& load_pin_caps,
+    const std::vector<double>& load_wire_caps,
+    const std::vector<double>& pin_cap) {
   TDNet* net;
   int net_index;
 
@@ -1122,12 +1429,17 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
       pin->y_ = net->y_[i];
       pin->slack_ = net->pins_slacks_[i];
       pin->arrival_time_ = net->arrival_time_[i];
+      pin->cell_delay_ = cell_delays[i];
+      pin->load_pin_cap_ = load_pin_caps[i];
+      pin->load_wire_cap_ = load_wire_caps[i];
+      pin->pin_cap_ = pin_cap[i];
     }
 
     // logger_->report("Net {} slack: {}", dbnet->getConstName(), slack);
     // for (int i = 0; i < net->n_pins_; i++) {
     //   logger_->report("Pin {} ({}, {}) slack: {} arrival: {}", i, net->x_[i],
-    //                   net->y_[i], net->pins_slacks_[i], net->arrival_time_[i]);
+    //                   net->y_[i], net->pins_slacks_[i],
+    //                   net->arrival_time_[i]);
     // }
     return;
   }
@@ -1158,6 +1470,10 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     }
     pin->slack_ = net->pins_slacks_[i];
     pin->arrival_time_ = net->arrival_time_[i];
+    pin->cell_delay_ = cell_delays[i];
+    pin->load_pin_cap_ = load_pin_caps[i];
+    pin->load_wire_cap_ = load_wire_caps[i];
+    pin->pin_cap_ = pin_cap[i];
     pins.push_back(pin);
   }
   net->pins_ = pins;
@@ -1179,15 +1495,37 @@ void TimingDrivenSteinerTreeBuilder::addOrUpdateNet(
     steiner_trees_.resize(net_index + 1);
   }
 
-  // logger_->report("Net {} slack: {}", dbnet->getConstName(), slack);
-  // for (int i = 0; i < net->n_pins_; i++) {
-  //   logger_->report("Pin {} ({}, {}) slack: {} arrival: {}", i, net->x_[i],
-  //                   net->y_[i], net->pins_slacks_[i], net->arrival_time_[i]);
-  // }
+  logger_->report("Net {} slack: {}", dbnet->getConstName(), slack);
+  for (int i = 0; i < net->n_pins_; i++) {
+    logger_->report(
+        "Pin {} ({}, {}) slack: {} arrival: {}, cell delay: {}, load pin cap: "
+        "{}, load wire cap: {}",
+        i, net->x_[i], net->y_[i], net->pins_slacks_[i], net->arrival_time_[i],
+        cell_delays[i], load_pin_caps[i], load_wire_caps[i]);
+  }
 }
 
 Tree TimingDrivenSteinerTreeBuilder::getSteinerTree(odb::dbNet* dbnet) {
   int net_index = net_index_map_[dbnet];
+  if (use_saved_res_) {
+    if (saved_res_map_.find(dbnet) != saved_res_map_.end()) {
+      RES saved_res = saved_res_map_[dbnet];
+      RESTree* restree = restrees_[net_index];
+      if (restree->getRES() != saved_res) {
+        logger_->report("Restoring RESTree for net {}", net_index);
+        overflow_manager_->removeTreeUsage(restree);
+        restree->updateRES(saved_res);
+        overflow_manager_->addTreeUsage(restree);
+        steiner_trees_[net_index] =
+            TreeConverter(restree).convertToSteinerTree();
+        return steiner_trees_[net_index];
+      } else {
+        return steiner_trees_[net_index];
+      }
+    } else {
+      logger_->report("No saved RES for net {}", net_index);
+    }
+  }
   // logger_->report("Getting Steiner Tree for net {}", net_index);
   // reportSteinerTree(steiner_trees_[net_index], logger_);
   return steiner_trees_[net_index];
@@ -1243,6 +1581,31 @@ void TimingDrivenSteinerTreeBuilder::initializeRESTrees() {
   reportOverflow();
 }
 
+void TimingDrivenSteinerTreeBuilder::initializeOptimizer() {
+  logger_->report("Initializing RESTree Optimizer");
+  // total_length_timing_evaluator_ = new
+  // RESTreeTotalLengthTimingEvaluator(wire_r_, wire_c_, tile_size_,
+  // dbu_per_micron_); total_length_timing_evaluator_->setWeight(0.7);
+
+  // length_timing_evaluator_ = new RESTreeLengthTimingEvaluator(wire_r_,
+  // wire_c_, tile_size_, dbu_per_micron_);
+  // length_timing_evaluator_->setWeight(0.3);
+
+  timing_driven_evaluator_ = new RESTreeTimingDrivenEvaluator(
+      wire_r_, wire_c_, tile_size_, dbu_per_micron_);
+  timing_driven_evaluator_->setWeight(1.0);
+
+  overflow_evaluator_ = new RESTreeOverflowEvaluator(overflow_manager_);
+  overflow_evaluator_->setWeight(0.1E-12);
+
+  std::vector<RESTreeAbstractEvaluator*> evaluators;
+  // evaluators.push_back(total_length_timing_evaluator_);
+  // evaluators.push_back(length_timing_evaluator_);
+  evaluators.push_back(timing_driven_evaluator_);
+  evaluators.push_back(overflow_evaluator_);
+  restree_optimizer_ = new RESTreeOptimizer(evaluators, logger_);
+}
+
 void TimingDrivenSteinerTreeBuilder::optimizeAll() {
   for (int i = 0; i < restrees_.size(); i++) {
     RESTree* restree = restrees_[i];
@@ -1274,7 +1637,7 @@ void TimingDrivenSteinerTreeBuilder::optimizeStep() {
   for (auto& v : slack_nets) {
     float slack = v.first;
     vector<odb::dbNet*> nets = v.second;
-    
+
     odb::dbNet* max_reduced_cost_net = nullptr;
     float max_reduced_cost = 0.0;
 
@@ -1284,7 +1647,10 @@ void TimingDrivenSteinerTreeBuilder::optimizeStep() {
       }
       int net_index = net_index_map_[net];
       RESTree* restree = restrees_[net_index];
-      double prev_cost = evaluateRESTree(restree);
+      restree_optimizer_->initializeEvaluators(restree);
+      double prev_cost = restree_optimizer_->getCost(restree);
+      // logger_->report("Optimizing RESTree for net {}", restree->netName());
+      // logger_->report("Initial cost: {}", prev_cost);
       RES prev_res = restree->getRES();
       if (net_optimized_res_map_.find(net) != net_optimized_res_map_.end()) {
         restree->updateRES(net_optimized_res_map_[net]);
@@ -1292,8 +1658,9 @@ void TimingDrivenSteinerTreeBuilder::optimizeStep() {
       double optimized_cost = restree_optimizer_->optimize(restree);
       net_optimized_res_map_[net] = restree->getRES();
       restree->updateRES(prev_res);
+      // logger_->report("Optimized cost: {}", optimized_cost);
 
-      float reduced_cost = prev_cost - optimized_cost;
+      float reduced_cost = -optimized_cost + prev_cost;
       if (reduced_cost == 0.0) {
         optimized_nets_.insert(net);
       }
@@ -1324,20 +1691,29 @@ void TimingDrivenSteinerTreeBuilder::optimizeStep() {
 }
 
 void TimingDrivenSteinerTreeBuilder::buildSteinerTrees() {
+  if (use_saved_res_) {
+    return;
+  }
   if (parasitics_src_ == ParasiticsSrc::PLACEMENT) {
-    logger_->report("Building Initial Steiner Trees using placement parasitics");
+    logger_->report(
+        "Building Initial Steiner Trees using placement parasitics");
     initializeRESTrees();
+    initializeOptimizer();
     for (int i = 0; i < restrees_.size(); i++) {
       RESTree* restree = restrees_[i];
       steiner_trees_[i] = TreeConverter(restree).convertToSteinerTree();
     }
   } else if (parasitics_src_ == ParasiticsSrc::GLOBAL_ROUTING) {
-    logger_->report("Building Initial Steiner Trees using global routing parasitics");
+    logger_->report(
+        "Building Initial Steiner Trees using global routing parasitics");
     optimizeStep();
   }
 }
 
 void TimingDrivenSteinerTreeBuilder::buildSteinerTreesAll() {
+  if (use_saved_res_) {
+    return;
+  }
   assert(parasitics_src_ == ParasiticsSrc::PLACEMENT);
   logger_->report("Building Initial Steiner Trees using placement parasitics");
   initializeRESTrees();

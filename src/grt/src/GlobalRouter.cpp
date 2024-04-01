@@ -69,6 +69,8 @@
 #include "sta/MinMax.hh"
 #include "sta/Parasitics.hh"
 #include "sta/Set.hh"
+#include "sta/Graph.hh"
+#include "sta/Corner.hh"
 #include "stt/SteinerTreeBuilder.h"
 #include "stt/TimingDrivenSteinerTreeBuilder.h"
 #include "utl/Logger.h"
@@ -196,6 +198,23 @@ std::vector<Net*> GlobalRouter::initFastRoute(int min_routing_layer,
   perturbCapacities();
   return nets;
 }
+
+void GlobalRouter::initTimingDrivenSteinerTreeBuilder() {
+  logger_->report("Initializing Timing-Driven Steiner Tree Builder.");
+  double res_per_meter = 0.0; // ohm/meter
+  double cap_per_meter = 0.0; // F/meter
+  resizer_->wireSignalRC(sta_->cmdCorner(), res_per_meter, cap_per_meter);
+  logger_->report("Wire R(ohm/meter): {}, C(F/meter): {}", res_per_meter, cap_per_meter);
+  td_stt_builder_->setWireRC(res_per_meter, cap_per_meter);
+  logger_->report("Grids: {} x {}", grid_->getXGrids(), grid_->getYGrids());
+  td_stt_builder_->setGrids(grid_->getXGrids(), grid_->getYGrids());
+  logger_->report("Tile size: {}", grid_->getTileSize());
+  td_stt_builder_->setTileSize(grid_->getTileSize());
+  logger_->report("DBU per micron: {}", block_->getDbUnitsPerMicron());
+  td_stt_builder_->setDbuPerMicron(block_->getDbUnitsPerMicron());
+  logger_->report("DEF UNITS: {}", block_->getDefUnits());
+}
+
 
 void GlobalRouter::applyAdjustments(int min_routing_layer,
                                     int max_routing_layer) {
@@ -327,12 +346,14 @@ void GlobalRouter::timingDrivenGlobalRoute(bool save_guides, bool once) {
   // Estimate parasitics for timing-driven global routing
   logger_->report("Estimating parasitics from placement.");
   resizer_->estimateParasitics(rsz::ParasiticsSrc::placement);
+
   logger_->report("Estimating parasitics from placement done.");
   td_stt_builder_->resetUpdatedTreesCount();
   logger_->report("Initial route");
   td_stt_builder_->setParasiticsSrc(stt::ParasiticsSrc::PLACEMENT);
   logger_->report("Start global route step");
   timingDrivenGlobalRouteStep();
+  td_stt_builder_->saveRES();
 
   logger_->report("Estimating parasitics from global routing.");
   resizer_->estimateParasitics(rsz::ParasiticsSrc::global_routing);
@@ -355,7 +376,16 @@ void GlobalRouter::timingDrivenGlobalRoute(bool save_guides, bool once) {
     float tns = sta_->totalNegativeSlack(sta::MinMax::max());
     logger_->report("WNS: {} TNS: {}", wns, tns);
     if (tns <= prev_tns) {
+      td_stt_builder_->useSavedRES(true);
+      timingDrivenGlobalRouteStep();
+      logger_->report("Estimating parasitics from global routing.");
+      resizer_->estimateParasitics(rsz::ParasiticsSrc::global_routing);
+      float wns = sta_->worstSlack(sta::MinMax::max());
+      float tns = sta_->totalNegativeSlack(sta::MinMax::max());
+      logger_->report("WNS: {} TNS: {}", wns, tns);
       break;
+    } else {
+      td_stt_builder_->saveRES();
     }
     prev_wns = wns;
     prev_tns = tns;
@@ -380,6 +410,7 @@ void GlobalRouter::timingDrivenGlobalRouteStep() {
   int max_layer = std::max(max_routing_layer_, max_layer_for_clock_);
 
   std::vector<Net*> nets = initFastRoute(min_layer, max_layer);
+  initTimingDrivenSteinerTreeBuilder();
 
   if (verbose_) {
     reportResources();
@@ -426,6 +457,7 @@ void GlobalRouter::updateDbCongestion() {
 
 void GlobalRouter::repairAntennas(odb::dbMTerm* diode_mterm, int iterations,
                                   float ratio_margin) {
+  logger_->report("Repairing antennas.");
   if (repair_antennas_ == nullptr)
     repair_antennas_ =
         new RepairAntennas(this, antenna_checker_, opendp_, db_, logger_);
@@ -766,43 +798,117 @@ int GlobalRouter::getNetMaxRoutingLayer(const Net* net) {
 
 FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid) {
   float rise_slack, fall_slack, rise_arrival_time, fall_arrival_time;
+  float cell_delay = 0.0;
+  float slack = 0.0;
+  float arrival_time = 0.0;
+  float load_pin_cap = 0.0;
+  float load_wire_cap = 0.0;
+  float pin_cap = 0.0;
   int inst_id;
   bool is_sequential;
   uint pin_id;
   std::string pin_name;
   std::string inst_name;
   if (pin.isPort()) {
+    sta_->ensureGraph();
     odb::dbBTerm* bTerm = pin.getBTerm();
     inst_id = -1;
     pin_id = pin.getBTerm()->getId();
     is_sequential = true;
     pin_name = bTerm->getName();
-    inst_name = "PORT";
     sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(bTerm);
     rise_slack =
         sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
     fall_slack =
         sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+    slack = std::min(rise_slack, fall_slack);
     rise_arrival_time =
         sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
     fall_arrival_time =
         sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+    arrival_time = std::max(rise_arrival_time, fall_arrival_time);
+    sta::LibertyPort* lib_port = sta_->getDbNetwork()->libertyPort(sta_pin);
+    if (!lib_port) {
+      logger_->report("BTerm {} has no liberty port", bTerm->getName());
+    } else {
+      pin_cap = lib_port->capacitance();
+    }
+    
+    if (pin.isDriver()) {
+      sta::Corner* corner = sta_->corners()->findCorner(0);
+      sta_->connectedCap(sta_pin, sta::RiseFall::rise(), corner, sta::MinMax::max(), load_pin_cap, load_wire_cap);
+      sta::Graph* graph = sta_->ensureGraph();
+      sta::Vertex* vertex = graph->pinDrvrVertex(sta_pin);
+      sta::VertexInEdgeIterator edge_iter(vertex, graph);
+      vector<float> delays;
+      while (edge_iter.hasNext()) {
+        sta::Edge *edge = edge_iter.next();
+        sta::Vertex* from_vertex = edge->from(graph);
+        float prev_arrival = sta_->vertexArrival(from_vertex, sta::MinMax::max());
+        if (prev_arrival < arrival_time) {
+          delays.push_back(arrival_time - prev_arrival);
+        } else {
+          delays.push_back(arrival_time);
+        }
+      }
+      if (!delays.empty()) {
+        cell_delay = *std::min_element(delays.begin(), delays.end());
+      }
+    }
   } else {
+    sta_->ensureGraph();
     odb::dbITerm* iTerm = pin.getITerm();
     pin_id = pin.getITerm()->getId();
     inst_id = pin.getITerm()->getInst()->getId();
     is_sequential = pin.getITerm()->getInst()->getMaster()->isSequential();
     sta::Pin* sta_pin = sta_->getDbNetwork()->dbToSta(iTerm);
+
     pin_name = iTerm->getMTerm()->getName();
-    inst_name = iTerm->getInst()->getName();
     rise_slack =
         sta_->pinSlack(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
     fall_slack =
         sta_->pinSlack(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+    slack = std::min(rise_slack, fall_slack);
+    
     rise_arrival_time =
         sta_->pinArrival(sta_pin, sta::RiseFall::rise(), sta::MinMax::max());
     fall_arrival_time =
         sta_->pinArrival(sta_pin, sta::RiseFall::fall(), sta::MinMax::max());
+    arrival_time = std::max(rise_arrival_time, fall_arrival_time);
+
+    sta::LibertyPort* lib_port = sta_->getDbNetwork()->libertyPort(sta_pin);
+
+    if (!lib_port) {
+      logger_->report("ITerm {} has no liberty port", iTerm->getName());
+    } else {
+      pin_cap = lib_port->capacitance();
+    }
+
+    if (pin.isDriver()) {
+      sta::Corner* corner = sta_->corners()->findCorner(0);
+      sta_->connectedCap(sta_pin, sta::RiseFall::rise(), corner, sta::MinMax::max(), load_pin_cap, load_wire_cap);
+      sta::Graph* graph = sta_->ensureGraph();
+      sta::Vertex* vertex = graph->pinDrvrVertex(sta_pin);
+      sta::VertexInEdgeIterator edge_iter(vertex, graph);
+      vector<float> delays;
+      while (edge_iter.hasNext()) {
+        sta::Edge *edge = edge_iter.next();
+        sta::Vertex* from_vertex = edge->from(graph);
+        sta::Pin* from_pin = from_vertex->pin();
+        float prev_rise_arrival = sta_->pinArrival(from_pin, sta::RiseFall::rise(), sta::MinMax::max());
+        float prev_fall_arrival = sta_->pinArrival(from_pin, sta::RiseFall::fall(), sta::MinMax::max());
+        float prev_arrival = std::max(prev_rise_arrival, prev_fall_arrival);
+        // logger_->report("Prev arrival: {}", prev_arrival);
+        if (prev_arrival < arrival_time) {
+          delays.push_back(arrival_time - prev_arrival);
+        } else {
+          delays.push_back(arrival_time);
+        }
+      }
+      if (!delays.empty()) {
+        cell_delay = *std::min_element(delays.begin(), delays.end());
+      }
+    }
   }
   // logger_->report(
   //   "Pin {}{}\n Inst: {}{}\n rise slack: {}\n fall slack: {}\n rise AT: {}\n
@@ -816,15 +922,18 @@ FrPin GlobalRouter::makeFrPin(const Pin& pin, const RoutePt& pin_on_grid) {
   //    rise_arrival_time,
   //    fall_arrival_time);
 
-  float slack = std::min(rise_slack, fall_slack);
-  float arrival_time = std::max(rise_arrival_time, fall_arrival_time);
+
+
+
 
   if (pin.isPort()) {
     return FrPin(pin.getBTerm(), pin_on_grid.x(), pin_on_grid.y(),
-                 pin_on_grid.layer(), slack, arrival_time, pin.isDriver());
+                 pin_on_grid.layer(), slack, arrival_time, pin.isDriver(), 
+                 cell_delay, load_pin_cap, load_wire_cap, pin_cap);
   } else {
     return FrPin(pin.getITerm(), pin_on_grid.x(), pin_on_grid.y(),
-                 pin_on_grid.layer(), slack, arrival_time, pin.isDriver());
+                 pin_on_grid.layer(), slack, arrival_time, pin.isDriver(), 
+                 cell_delay, load_pin_cap, load_wire_cap, pin_cap);
   }
 }
 

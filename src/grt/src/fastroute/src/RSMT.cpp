@@ -1542,9 +1542,7 @@ void FastRouteCore::gen_brk_ALLCPP() {
   }
   // ===== FLUTE LROUTE END =====
 
-
   // START TimingDrivenSteinerTree
-  td_stt_builder_->setGrids(x_grid_, y_grid_);
   for (int y = 0; y < y_grid_; y++) {
     for (int x = 0; x < x_grid_ - 1; x++) {
       unsigned short cap = h_edges_[y][x].cap;
@@ -1574,14 +1572,23 @@ void FastRouteCore::gen_brk_ALLCPP() {
     FrNet* net = nets_[i];
     vector<double> pin_slacks;
     vector<double> arrival_time;
+    vector<double> cell_delay;
+    vector<double> load_pin_cap;
+    vector<double> load_wire_cap;
+    vector<double> pin_cap;
     for (int j = 0; j < net->getNumPins(); j++) {
       FrPin pin = net->getFrPin(j);
       pin_slacks.push_back(pin.slack());
       arrival_time.push_back(pin.arrivalTime());
+      cell_delay.push_back(pin.cellDelay());
+      load_pin_cap.push_back(pin.loadPinCap());
+      load_wire_cap.push_back(pin.loadWireCap());
+      pin_cap.push_back(pin.pinCap());
     }
-    td_stt_builder_->addOrUpdateNet(net->getDbNet(), net->getPinX(),
-                                    net->getPinY(), net->isClock(),
-                                    net->getDriverIdx(), net->getSlack(), pin_slacks, arrival_time);
+    td_stt_builder_->addOrUpdateNet(
+        net->getDbNet(), net->getPinX(), net->getPinY(), net->isClock(),
+        net->getDriverIdx(), net->getSlack(), pin_slacks, arrival_time,
+        cell_delay, load_pin_cap, load_wire_cap, pin_cap);
   }
   td_stt_builder_->buildSteinerTrees();
   vector<Tree> td_rsmts;
@@ -1783,9 +1790,7 @@ void FastRouteCore::gen_brk_CPPONCE() {
   }
   // ===== FLUTE LROUTE END =====
 
-
   // START TimingDrivenSteinerTree
-  td_stt_builder_->setGrids(x_grid_, y_grid_);
   for (int y = 0; y < y_grid_; y++) {
     for (int x = 0; x < x_grid_ - 1; x++) {
       unsigned short cap = h_edges_[y][x].cap;
@@ -1815,14 +1820,23 @@ void FastRouteCore::gen_brk_CPPONCE() {
     FrNet* net = nets_[i];
     vector<double> pin_slacks;
     vector<double> arrival_time;
+    vector<double> cell_delay;
+    vector<double> load_pin_cap;
+    vector<double> load_wire_cap;
+    vector<double> pin_cap;
     for (int j = 0; j < net->getNumPins(); j++) {
       FrPin pin = net->getFrPin(j);
       pin_slacks.push_back(pin.slack());
       arrival_time.push_back(pin.arrivalTime());
+      cell_delay.push_back(pin.cellDelay());
+      load_pin_cap.push_back(pin.loadPinCap());
+      load_wire_cap.push_back(pin.loadWireCap());
+      pin_cap.push_back(pin.pinCap());
     }
-    td_stt_builder_->addOrUpdateNet(net->getDbNet(), net->getPinX(),
-                                    net->getPinY(), net->isClock(),
-                                    net->getDriverIdx(), net->getSlack(), pin_slacks, arrival_time);
+    td_stt_builder_->addOrUpdateNet(
+        net->getDbNet(), net->getPinX(), net->getPinY(), net->isClock(),
+        net->getDriverIdx(), net->getSlack(), pin_slacks, arrival_time,
+        cell_delay, load_pin_cap, load_wire_cap, pin_cap);
   }
   td_stt_builder_->buildSteinerTreesAll();
   vector<Tree> td_rsmts;
@@ -1924,7 +1938,6 @@ void FastRouteCore::gen_brk_CPPONCE() {
               true);  // route the net with no previous route for each tree edge
   }
 }
-
 
 void FastRouteCore::writeTDInputFile(const char* filename,
                                      std::function<bool(FrNet*)> runChecker) {
