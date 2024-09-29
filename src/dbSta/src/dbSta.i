@@ -173,6 +173,15 @@ report_cell_usage_cmd(const bool verbose)
   sta->report_cell_usage(verbose);
 }
 
+void
+report_pin_slacks_cmd()
+{
+  cmdLinkedNetwork();
+  ord::OpenRoad *openroad = ord::getOpenRoad();
+  sta::dbSta *sta = openroad->getSta();
+  sta->report_pin_slacks();
+}
+
 // Copied from sta/verilog/Verilog.i because we don't want sta::read_verilog
 // that is in the same file.
 void

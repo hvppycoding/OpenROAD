@@ -171,6 +171,7 @@ class dbSta : public Sta, public ord::OpenRoadObserver
   std::string getInstanceTypeText(InstType type);
   InstType getInstanceType(odb::dbInst* inst);
   void report_cell_usage(bool verbose);
+  void report_pin_slacks();
 
   using Sta::netSlack;
   using Sta::replaceCell;

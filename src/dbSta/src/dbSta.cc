@@ -539,6 +539,26 @@ void dbSta::report_cell_usage(const bool verbose)
   }
 }
 
+void dbSta::report_pin_slacks()
+{
+  dbBlock* block = db_->getChip()->getBlock();
+  dbSet<dbInst> insts = block->getInsts();
+  
+  const char* format = "  {:20} {:10} {:>10.5g} {:>10.5g}";
+
+  for (auto inst : insts) {
+    std::string inst_name = inst->getName();
+    dbSet<dbITerm> pins = inst->getITerms();
+    for (auto pin : pins) {
+      std::string pin_name = pin->getMTerm()->getName();
+      sta::Pin* sta_pin = getDbNetwork()->dbToSta(pin);
+      auto rise_slack = pinSlack(sta_pin, RiseFall::rise(), MinMax::max());
+      auto fall_slack = pinSlack(sta_pin, RiseFall::fall(), MinMax::max());
+      logger_->report(format, inst_name, pin_name, rise_slack, fall_slack);
+    }
+  }
+}
+
 ////////////////////////////////////////////////////////////////
 
 // Network edit functions.

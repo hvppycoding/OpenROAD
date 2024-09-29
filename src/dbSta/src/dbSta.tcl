@@ -92,6 +92,17 @@ proc report_cell_usage { args } {
   report_cell_usage_cmd [info exists flags(-verbose)]
 }
 
+define_cmd_args "report_pin_slacks" { }
+
+proc report_pin_slacks { args } {
+  parse_key_args "report_pin_slacks" args \
+    keys {} flags {}
+  if { [ord::get_db_block] == "NULL" } {
+    sta_error "No design block found."
+  }
+  report_pin_slacks_cmd
+}
+
 # redefine sta::sta_warn/error to call utl::warn/error
 proc sta_error { id msg } {
   utl::error STA $id $msg
